@@ -1,0 +1,437 @@
+// ─────────────────────────────────────────────────────────────
+// PRISMA SCHEMA — The Blueprint of Your Database
+// ─────────────────────────────────────────────────────────────
+//
+// Think of this file like an architect's floor plan.
+// Each "model" below is a TABLE in PostgreSQL.
+// Each field inside a model is a COLUMN in that table.
+// Prisma reads this file and creates/updates the real database tables.
+//
+// After changing anything here, run:  npm run db:migrate
+// ─────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// USERS — Who can log into the system
+// ═══════════════════════════════════════════════════════════════
+model User {
+  id           String    @id              // e.g. "HN-JKA-1234"
+  name         String
+  password     String                     // stored as a secure hash (bcrypt)
+  role         String    @default("viewer")
+  email        String?
+  phone        String?
+  department   String?
+  modules      String[]  @default([])    // list of module IDs they can access
+  active       Boolean   @default(true)
+  avatar       String?
+  isDefault    Boolean   @default(false)
+  lastLogin    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations — a User can create many Orders, Invoices, etc.
+  orders       Order[]
+  invoices     Invoice[]
+  expenses     Expense[]
+
+  @@map("users")  // actual table name in PostgreSQL
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CUSTOMERS — People/companies you sell to
+// ═══════════════════════════════════════════════════════════════
+model Customer {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  type      String?                        // Commercial, Industrial, etc.
+  region    String?
+  contact   String?
+  gps       String?
+  rep       String?                        // account manager name
+  status    String    @default("Active")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // A customer can have many orders and invoices
+  orders    Order[]
+  invoices  Invoice[]
+
+  @@map("customers")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ORDERS — Sales orders placed in Commercial
+// ═══════════════════════════════════════════════════════════════
+model Order {
+  id           String    @id @default(cuid())
+  status       String    @default("Awaiting Ops Review")
+  date         String                       // date placed
+  product      String?
+  qty          Float?
+  unitPrice    Float?
+  notes        String?
+  deliveryDate String?
+  bulkKg       Float?
+  approvedAt   String?
+  cancelledAt  String?
+  deliveredAt  String?
+
+  // Which customer placed this order
+  customer     Customer  @relation(fields:[customerId], references:[id])
+  customerId   String
+
+  // Which sales rep placed it
+  placedBy     User?     @relation(fields:[placedById], references:[id])
+  placedById   String?
+
+  // Linked invoice (created when delivered)
+  invoice      Invoice?
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("orders")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INVOICES — Money owed to Henos Energy
+// ═══════════════════════════════════════════════════════════════
+model Invoice {
+  id          String         @id @default(cuid())
+  amount      Float          @default(0)
+  amountPaid  Float          @default(0)
+  status      String         @default("Unpaid")
+  dueDate     String?
+  source      String         @default("Manual")
+  payRef      String?
+  lastPayDate String?
+  repName     String?
+  date        String?
+
+  // Who owes us
+  customer    Customer       @relation(fields:[customerId], references:[id])
+  customerId  String
+
+  // Which order triggered this (if auto-created)
+  order       Order?         @relation(fields:[orderId], references:[id])
+  orderId     String?        @unique
+
+  // Who created it
+  createdBy   User?          @relation(fields:[createdById], references:[id])
+  createdById String?
+
+  // The line items (cylinders, bulk LPG, etc.)
+  items       InvoiceItem[]
+
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@map("invoices")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INVOICE ITEMS — Individual lines on an invoice
+// ═══════════════════════════════════════════════════════════════
+model InvoiceItem {
+  id        String   @id @default(cuid())
+  type      String?                        // "50KG Cylinder", "Bulk LPG", etc.
+  qty       Float    @default(1)
+  price     Float    @default(0)
+  bulkDesc  String?
+  isBulk    Boolean  @default(false)
+
+  invoice   Invoice  @relation(fields:[invoiceId], references:[id], onDelete:Cascade)
+  invoiceId String
+
+  @@map("invoice_items")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EXPENSES — Company spending
+// ═══════════════════════════════════════════════════════════════
+model Expense {
+  id          String        @id @default(cuid())
+  description String?
+  amount      Float         @default(0)
+  category    String?
+  approved    Boolean       @default(false)
+  date        String?
+
+  createdBy   User?         @relation(fields:[createdById], references:[id])
+  createdById String?
+
+  items       ExpenseItem[]
+
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@map("expenses")
+}
+
+model ExpenseItem {
+  id          String   @id @default(cuid())
+  description String?
+  qty         Float    @default(1)
+  unitCost    Float    @default(0)
+
+  expense     Expense  @relation(fields:[expenseId], references:[id], onDelete:Cascade)
+  expenseId   String
+
+  @@map("expense_items")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PRICES — Product pricing list
+// ═══════════════════════════════════════════════════════════════
+model Price {
+  id        String   @id @default(cuid())
+  product   String
+  category  String?
+  unit      String?
+  price     Float?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@map("prices")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// STOCK — Warehouse inventory items
+// ═══════════════════════════════════════════════════════════════
+model Stock {
+  id        String   @id @default(cuid())
+  product   String
+  qty       Float    @default(0)
+  reorder   Float    @default(0)
+  warehouse String?
+  status    String   @default("OK")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("stock")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DELIVERIES — Truck/driver delivery records
+// ═══════════════════════════════════════════════════════════════
+model Delivery {
+  id          String         @id @default(cuid())
+  orderRef    String?
+  driver      String?
+  truck       String?
+  destination String?
+  status      String         @default("Scheduled")
+  date        String?
+  items       DeliveryItem[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@map("deliveries")
+}
+
+model DeliveryItem {
+  id         String   @id @default(cuid())
+  type       String?
+  qty        Float    @default(1)
+  bulkDesc   String?
+  isBulk     Boolean  @default(false)
+
+  delivery   Delivery @relation(fields:[deliveryId], references:[id], onDelete:Cascade)
+  deliveryId String
+
+  @@map("delivery_items")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SUPPLIERS — Companies you buy from
+// ═══════════════════════════════════════════════════════════════
+model Supplier {
+  id        String   @id @default(cuid())
+  name      String
+  product   String?
+  contact   String?
+  location  String?
+  status    String   @default("Active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("suppliers")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DELIVERED LOG — Record of completed deliveries
+// ═══════════════════════════════════════════════════════════════
+model DeliveredLog {
+  id          String   @id @default(cuid())
+  orderId     String
+  customer    String
+  product     String?
+  qty         Float?
+  value       Float?
+  placedBy    String?
+  deliveredAt String?
+  invoiceId   String?
+  createdAt   DateTime @default(now())
+
+  @@map("delivered_log")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EXCHANGE POINTS — EaziGas locations
+// ═══════════════════════════════════════════════════════════════
+model ExchangePoint {
+  id        String            @id @default(cuid())
+  name      String
+  location  String?
+  createdAt DateTime          @default(now())
+  records   EpRecord[]
+
+  @@map("exchange_points")
+}
+
+model EpRecord {
+  id              String        @id @default(cuid())
+  date            String
+  rows            Json                           // stored as JSON array
+  exchangePoint   ExchangePoint @relation(fields:[exchangePointId], references:[id], onDelete:Cascade)
+  exchangePointId String
+  createdAt       DateTime      @default(now())
+
+  @@unique([exchangePointId, date])
+  @@map("ep_records")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HOLDING — Cylinder stock at ELH / Kumasi / Winneba
+// ═══════════════════════════════════════════════════════════════
+model HoldingRecord {
+  id        String   @id @default(cuid())
+  area      String                              // "elh" | "kum" | "wcd"
+  date      String
+  rows      Json                               // cylinder stock rows as JSON
+  createdAt DateTime @default(now())
+
+  @@unique([area, date])
+  @@map("holding_records")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LPG STATIONS — Petrol station stock readings
+// ═══════════════════════════════════════════════════════════════
+model Station {
+  id       String          @id @default(cuid())
+  name     String
+  location String?
+  tanks    Json            @default("[]")      // tank configs as JSON
+  docs     Json            @default("[]")      // compliance docs as JSON
+  readings StationReading[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@map("stations")
+}
+
+model StationReading {
+  id        String   @id @default(cuid())
+  date      String
+  tanks     Json                              // roto gauge readings per tank
+  by        String?
+  notes     String?
+
+  station   Station  @relation(fields:[stationId], references:[id], onDelete:Cascade)
+  stationId String
+
+  createdAt DateTime @default(now())
+
+  @@unique([stationId, date])
+  @@map("station_readings")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CAMPAIGNS & LEADS — Marketing
+// ═══════════════════════════════════════════════════════════════
+model Campaign {
+  id        String   @id @default(cuid())
+  name      String
+  channel   String?
+  budget    Float?
+  spent     Float?
+  leads     Int?
+  status    String   @default("Draft")
+  startDate String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("campaigns")
+}
+
+model Lead {
+  id        String   @id @default(cuid())
+  name      String
+  contact   String?
+  source    String?
+  value     Float?
+  stage     String   @default("New")
+  date      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("leads")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ESG — Environmental, Social, Governance tracking
+// ═══════════════════════════════════════════════════════════════
+model EsgMetrics {
+  id               String @id @default("singleton")
+  cylRefill        Int    @default(0)
+  bulkDeliveries   Int    @default(0)
+  leakReports      Int    @default(0)
+  safetyTraining   Int    @default(0)
+  treesPlanted     Int    @default(0)
+  wasteKg          Int    @default(0)
+  communityEvents  Int    @default(0)
+  ltiDays          Int    @default(0)
+  femaleStaff      Int    @default(0)
+  totalStaff       Int    @default(0)
+
+  @@map("esg_metrics")
+}
+
+model EsgLog {
+  id        String   @id @default(cuid())
+  date      String?
+  category  String?
+  activity  String?
+  value     String?
+  loggedBy  String?
+  notes     String?
+  createdAt DateTime @default(now())
+
+  @@map("esg_logs")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// NOTIFICATIONS — In-app alerts
+// ═══════════════════════════════════════════════════════════════
+model Notification {
+  id       String   @id @default(cuid())
+  channel  String                            // "commercial" | "accounts"
+  type     String                            // "approved" | "rejected" | etc.
+  title    String
+  message  String
+  read     Boolean  @default(false)
+  time     String?
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
+}

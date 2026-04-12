@@ -1,0 +1,44 @@
+import express from 'express'
+import prisma from '../db.js'
+import { requireAuth, requireModule } from '../middleware/auth.js'
+const router = express.Router()
+router.use(requireAuth, requireModule('accounts'))
+
+router.get('/', async (req, res) => {
+  try {
+    res.json(await prisma.invoice.findMany({
+      include: { customer:{select:{name:true}}, items:true },
+      orderBy: { createdAt:'desc' }
+    }))
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+router.post('/', async (req, res) => {
+  try {
+    const { customerId, items, orderId, createdById, ...rest } = req.body
+    res.status(201).json(await prisma.invoice.create({
+      data: {
+        ...rest,
+        customer: { connect:{id:customerId} },
+        ...(orderId ? { order:{connect:{id:orderId}} } : {}),
+        ...(createdById ? { createdBy:{connect:{id:createdById}} } : {}),
+        items: { create: (items||[]).map(it=>({ type:it.type, qty:Number(it.qty||1), price:Number(it.price||0), bulkDesc:it.bulkDesc, isBulk:!!it.isBulk })) }
+      },
+      include: { items:true }
+    }))
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+router.patch('/:id', async (req, res) => {
+  try {
+    const { items, ...rest } = req.body
+    await prisma.invoiceItem.deleteMany({ where:{invoiceId:req.params.id} })
+    res.json(await prisma.invoice.update({
+      where:{id:req.params.id}, data:{ ...rest, items:{ create:(items||[]).map(it=>({type:it.type,qty:Number(it.qty||1),price:Number(it.price||0),bulkDesc:it.bulkDesc,isBulk:!!it.isBulk})) } },
+      include:{items:true}
+    }))
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+router.delete('/:id', async (req, res) => {
+  try { await prisma.invoice.delete({ where:{id:req.params.id} }); res.json({ success:true }) }
+  catch (e) { res.status(500).json({ error: e.message }) }
+})
+export default router
