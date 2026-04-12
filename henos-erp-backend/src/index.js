@@ -32,14 +32,43 @@ import notifRoutes        from './routes/notifications.js'
 const app  = express()
 const PORT = process.env.PORT || 4000
 
+const configuredOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
+  .split(',')
+  .map(origin => origin.trim().replace(/\/$/, ''))
+  .filter(Boolean)
+
+const vercelPreviewPattern = /^https:\/\/henos-erp-app-full(?:-[a-z0-9-]+)?\.vercel\.app$/i
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true
+
+  const normalizedOrigin = origin.replace(/\/$/, '')
+  return (
+    configuredOrigins.includes(normalizedOrigin) ||
+    normalizedOrigin === 'http://localhost:5173' ||
+    normalizedOrigin === 'http://127.0.0.1:5173' ||
+    vercelPreviewPattern.test(normalizedOrigin)
+  )
+}
+
 // ── Middleware ────────────────────────────────────────────────
 // Middleware = code that runs on EVERY request before the route handler.
 // Think of it like a security guard + translator at the door.
 
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+const corsOptions = {
+  origin(origin, callback) {
+    if (isAllowedOrigin(origin)) {
+      return callback(null, true)
+    }
+    return callback(new Error(`CORS blocked for origin: ${origin}`))
+  },
   credentials: true,
-}))
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}
+
+app.use(cors(corsOptions))
+app.options('*', cors(corsOptions))
 
 app.use(express.json())         // lets us read JSON data from the frontend
 
