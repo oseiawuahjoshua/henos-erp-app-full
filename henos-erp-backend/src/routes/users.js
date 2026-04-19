@@ -2,7 +2,7 @@
 import express from 'express'
 import bcrypt from 'bcryptjs'
 import prisma from '../db.js'
-import { requireAuth, requireAdmin } from '../middleware/auth.js'
+import { requireAuth, requireAdmin, requireManagerOrAdmin } from '../middleware/auth.js'
 
 const router = express.Router()
 
@@ -10,7 +10,7 @@ const router = express.Router()
 router.use(requireAuth)
 
 // ── GET /api/users ────────────────────────────────────────────
-router.get('/', requireAdmin, async (req, res) => {
+router.get('/', requireManagerOrAdmin, async (req, res) => {
   try {
     const users = await prisma.user.findMany({
       select: { id:true, name:true, role:true, email:true, phone:true, department:true, modules:true, active:true, avatar:true, isDefault:true, lastLogin:true, createdAt:true },

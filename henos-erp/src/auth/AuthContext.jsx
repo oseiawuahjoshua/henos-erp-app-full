@@ -2,34 +2,37 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { apiDelete, apiGet, apiPatch, apiPost } from '../lib/api'
 
 export const ALL_MODULES = [
-  { id:'dashboard',  label:'Dashboard',       icon:'⬡' },
-  { id:'commercial', label:'Commercial',      icon:'◈' },
-  { id:'accounts',   label:'Accounts',        icon:'◎' },
-  { id:'operations', label:'Operations',      icon:'⬢' },
-  { id:'marketing',  label:'Branding & Mktg', icon:'◆' },
-  { id:'stations',   label:'LPG Stations',    icon:'⛽' },
-  { id:'eazigas',    label:'EaziGas',         icon:'🔄' },
-  { id:'esg',        label:'ESG Compliance',  icon:'🌿' },
-  { id:'settings',   label:'Settings',        icon:'⚙️' },
-  { id:'users',      label:'User Management', icon:'👥' },
+  { id: 'dashboard', label: 'Dashboard', icon: 'DB' },
+  { id: 'commercial', label: 'Commercial', icon: 'CM' },
+  { id: 'crm', label: 'CRM', icon: 'CR' },
+  { id: 'accounts', label: 'Accounts', icon: 'AC' },
+  { id: 'operations', label: 'Operations', icon: 'OP' },
+  { id: 'marketing', label: 'Branding & Mktg', icon: 'MK' },
+  { id: 'hr', label: 'HR', icon: 'HR' },
+  { id: 'updates', label: 'Updates', icon: 'UP' },
+  { id: 'stations', label: 'LPG Stations', icon: 'ST' },
+  { id: 'eazigas', label: 'EaziGas', icon: 'EG' },
+  { id: 'esg', label: 'ESG Compliance', icon: 'ES' },
+  { id: 'settings', label: 'Settings', icon: 'SE' },
+  { id: 'users', label: 'User Management', icon: 'US' },
 ]
 
 export const ROLES = [
-  { id:'admin',      label:'Administrator',         color:'#dc2626', desc:'Full access to all modules and user management' },
-  { id:'manager',    label:'Manager',               color:'#7c3aed', desc:'All modules except user management' },
-  { id:'sales_rep',  label:'Sales Representative',  color:'#1a56db', desc:'Commercial + Dashboard' },
-  { id:'accountant', label:'Accounts Officer',      color:'#16a34a', desc:'Accounts + Dashboard' },
-  { id:'operations', label:'Operations Officer',    color:'#d97706', desc:'Operations + EaziGas + Stations' },
-  { id:'viewer',     label:'Viewer / Read-only',    color:'#6b7280', desc:'Dashboard view only' },
+  { id: 'admin', label: 'Administrator', color: '#dc2626', desc: 'Full access to all modules and user management' },
+  { id: 'manager', label: 'Manager', color: '#7c3aed', desc: 'Cross-functional oversight with HR and updates access' },
+  { id: 'sales_rep', label: 'Sales Representative', color: '#1a56db', desc: 'Commercial, CRM, dashboard, and updates' },
+  { id: 'accountant', label: 'Accounts Officer', color: '#16a34a', desc: 'Accounts, dashboard, and updates' },
+  { id: 'operations', label: 'Operations Officer', color: '#d97706', desc: 'Operations, EaziGas, Stations, dashboard, and updates' },
+  { id: 'viewer', label: 'Viewer / Read-only', color: '#6b7280', desc: 'Dashboard and company updates view only' },
 ]
 
 export const ROLE_DEFAULTS = {
-  admin:      ['dashboard','commercial','accounts','operations','marketing','stations','eazigas','esg','settings','users'],
-  manager:    ['dashboard','commercial','accounts','operations','marketing','stations','eazigas','esg'],
-  sales_rep:  ['dashboard','commercial'],
-  accountant: ['dashboard','accounts'],
-  operations: ['dashboard','operations','eazigas','stations'],
-  viewer:     ['dashboard'],
+  admin: ['dashboard', 'commercial', 'crm', 'accounts', 'operations', 'marketing', 'hr', 'updates', 'stations', 'eazigas', 'esg', 'settings', 'users'],
+  manager: ['dashboard', 'commercial', 'crm', 'accounts', 'operations', 'marketing', 'hr', 'updates', 'stations', 'eazigas', 'esg'],
+  sales_rep: ['dashboard', 'commercial', 'crm', 'updates'],
+  accountant: ['dashboard', 'accounts', 'updates'],
+  operations: ['dashboard', 'operations', 'updates', 'eazigas', 'stations'],
+  viewer: ['dashboard', 'updates'],
 }
 
 const SESSION_KEY = 'henos_erp_session_v4'
@@ -86,9 +89,11 @@ export function AuthProvider({ children }) {
         setToken(stored.token)
         setSession({ ...user, token: stored.token })
         saveStoredSession({ token: stored.token, user })
-        if (user.role === 'admin') {
+        if (canAccessForUser(user, 'hr')) {
           const list = await apiGet('/api/users', stored.token)
           if (!cancelled) setUsers(list)
+        } else if (!cancelled) {
+          setUsers([])
         }
       } catch {
         clearStoredSession()
@@ -106,7 +111,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   async function refreshUsers(currentToken = token, currentSession = session) {
-    if (!currentToken || currentSession?.role !== 'admin') {
+    if (!currentToken || !canAccessForUser(currentSession, 'hr')) {
       setUsers([])
       return []
     }
@@ -124,7 +129,7 @@ export function AuthProvider({ children }) {
       setToken(result.token)
       setSession(nextSession)
       saveStoredSession({ token: result.token, user: result.user })
-      if (result.user.role === 'admin') {
+      if (canAccessForUser(result.user, 'hr')) {
         await refreshUsers(result.token, result.user)
       } else {
         setUsers([])
@@ -170,7 +175,7 @@ export function AuthProvider({ children }) {
 
   async function updateUser(id, patch) {
     const updated = await apiPatch(`/api/users/${id}`, patch, token)
-    setUsers(prev => prev.map(u => u.id === id ? { ...u, ...updated } : u))
+    setUsers(prev => prev.map(user => user.id === id ? { ...user, ...updated } : user))
     if (session?.id === id) {
       const nextSession = { ...session, ...updated, token }
       setSession(nextSession)
@@ -181,11 +186,11 @@ export function AuthProvider({ children }) {
 
   async function deleteUser(id) {
     await apiDelete(`/api/users/${id}`, token)
-    setUsers(prev => prev.filter(u => u.id !== id))
+    setUsers(prev => prev.filter(user => user.id !== id))
   }
 
   function canAccess(mod) {
-    return !session ? false : session.role === 'admin' || (session.modules || []).includes(mod)
+    return canAccessForUser(session, mod)
   }
 
   return (
@@ -215,8 +220,8 @@ export function useAuth() {
 }
 
 function genId(name) {
-  const ini = (name || '').trim().split(' ').map(w => w[0] || '').join('').toUpperCase().slice(0, 3) || 'USR'
-  return `HN-${ini}-${String(Math.floor(Math.random() * 9000) + 1000)}`
+  const initialsValue = (name || '').trim().split(' ').map(word => word[0] || '').join('').toUpperCase().slice(0, 3) || 'USR'
+  return `HN-${initialsValue}-${String(Math.floor(Math.random() * 9000) + 1000)}`
 }
 
 function genPass() {
@@ -225,5 +230,12 @@ function genPass() {
 }
 
 function initials(name) {
-  return (name || '').trim().split(' ').map(w => w[0] || '').join('').toUpperCase().slice(0, 2) || '??'
+  return (name || '').trim().split(' ').map(word => word[0] || '').join('').toUpperCase().slice(0, 2) || '??'
+}
+
+function canAccessForUser(user, mod) {
+  if (!user) return false
+  if (user.role === 'admin') return true
+  const effectiveModules = new Set([...(ROLE_DEFAULTS[user.role] || []), ...((user.modules) || [])])
+  return effectiveModules.has(mod)
 }

@@ -37,6 +37,17 @@ export function requireAdmin(req, res, next) {
   next()
 }
 
+export function requireManagerOrAdmin(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Not authenticated.' })
+  }
+  const canAccess = req.user.role === 'admin' || req.user.role === 'manager' || (req.user.modules || []).includes('hr')
+  if (!canAccess) {
+    return res.status(403).json({ error: 'Manager or HR access required.' })
+  }
+  next()
+}
+
 export function requireModule(moduleId) {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: 'Not authenticated.' })

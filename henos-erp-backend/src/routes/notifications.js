@@ -15,4 +15,7 @@ router.patch('/:id/read', async (req, res) => {
 router.patch('/read-all/:channel', async (req, res) => {
   try { await prisma.notification.updateMany({ where:{channel:req.params.channel,read:false}, data:{read:true} }); res.json({success:true}) } catch (e) { res.status(500).json({error:e.message}) }
 })
+router.delete('/:id', async (req, res) => {
+  try { await prisma.notification.delete({ where:{id:req.params.id} }); res.json({success:true}) } catch (e) { res.status(500).json({error:e.message}) }
+})
 export default router

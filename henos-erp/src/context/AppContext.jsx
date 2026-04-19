@@ -17,6 +17,7 @@ function createInitialState() {
       leads: [],
       cnotifs: [],
       anotifs: [],
+      broadcasts: [],
     },
     deliveredLog: [],
     holding: { elh: [], kum: [], wcd: [] },
@@ -315,6 +316,9 @@ export function AppProvider({ children }) {
           next.db.anotifs = anotifs
         }
 
+        const broadcasts = await apiGet('/api/notifications/broadcasts', token)
+        next.db.broadcasts = broadcasts
+
         if (canAccess('operations')) {
           const [stock, deliveries, suppliers, deliveredLog, elh, kum, wcd] = await Promise.all([
             apiGet('/api/stock', token),
@@ -540,6 +544,10 @@ async function handleInsert(action, state, token, session) {
       action.record = await apiPost('/api/campaigns/leads', normalizeBlankStrings(record), token)
       return
 
+    case 'broadcasts':
+      action.record = await apiPost('/api/notifications', { ...record, channel: 'broadcasts' }, token)
+      return
+
     case 'cnotifs':
     case 'anotifs':
       action.record = await apiPost('/api/notifications', { ...record, channel: key }, token)
@@ -601,6 +609,7 @@ async function handleDelete(action, token) {
     suppliers: `/api/suppliers/${id}`,
     campaigns: `/api/campaigns/${id}`,
     leads: `/api/campaigns/leads/${id}`,
+    broadcasts: `/api/notifications/${id}`,
   }
   if (routeMap[key]) await apiDelete(routeMap[key], token)
 }
