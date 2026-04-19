@@ -4,6 +4,17 @@ import { requireAuth, requireModule } from '../middleware/auth.js'
 const router = express.Router()
 router.use(requireAuth, requireModule('accounts'))
 
+function sanitizeInvoicePayload(body = {}) {
+  const next = { ...body }
+  delete next.id
+  delete next.createdAt
+  delete next.updatedAt
+  delete next.customer
+  next.amount = Number(next.amount || 0)
+  next.amountPaid = Number(next.amountPaid || 0)
+  return next
+}
+
 router.get('/', async (req, res) => {
   try {
     res.json(await prisma.invoice.findMany({
@@ -14,7 +25,7 @@ router.get('/', async (req, res) => {
 })
 router.post('/', async (req, res) => {
   try {
-    const { customerId, items, orderId, createdById, ...rest } = req.body
+    const { customerId, items, orderId, createdById, ...rest } = sanitizeInvoicePayload(req.body)
     res.status(201).json(await prisma.invoice.create({
       data: {
         ...rest,
@@ -29,10 +40,18 @@ router.post('/', async (req, res) => {
 })
 router.patch('/:id', async (req, res) => {
   try {
-    const { items, ...rest } = req.body
-    await prisma.invoiceItem.deleteMany({ where:{invoiceId:req.params.id} })
+    const { items, ...rest } = sanitizeInvoicePayload(req.body)
+    if (Array.isArray(items)) {
+      await prisma.invoiceItem.deleteMany({ where:{invoiceId:req.params.id} })
+    }
     res.json(await prisma.invoice.update({
-      where:{id:req.params.id}, data:{ ...rest, items:{ create:(items||[]).map(it=>({type:it.type,qty:Number(it.qty||1),price:Number(it.price||0),bulkDesc:it.bulkDesc,isBulk:!!it.isBulk})) } },
+      where:{id:req.params.id},
+      data:{
+        ...rest,
+        ...(Array.isArray(items)
+          ? { items:{ create:items.map(it=>({type:it.type,qty:Number(it.qty||1),price:Number(it.price||0),bulkDesc:it.bulkDesc,isBulk:!!it.isBulk})) } }
+          : {}),
+      },
       include:{items:true}
     }))
   } catch (e) { res.status(500).json({ error: e.message }) }

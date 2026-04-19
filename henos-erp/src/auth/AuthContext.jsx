@@ -74,6 +74,12 @@ export function AuthProvider({ children }) {
         return
       }
 
+      if (stored.user && !cancelled) {
+        setToken(stored.token)
+        setSession({ ...stored.user, token: stored.token })
+        setAuthReady(true)
+      }
+
       try {
         const user = await apiGet('/api/auth/me', stored.token)
         if (cancelled) return
@@ -90,9 +96,8 @@ export function AuthProvider({ children }) {
           setToken(null)
           setSession(null)
           setUsers([])
+          setAuthReady(true)
         }
-      } finally {
-        if (!cancelled) setAuthReady(true)
       }
     }
 

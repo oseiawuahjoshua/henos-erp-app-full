@@ -110,6 +110,7 @@ model Invoice {
   amount      Float          @default(0)
   amountPaid  Float          @default(0)
   status      String         @default("Unpaid")
+  deliveryDate String?
   dueDate     String?
   source      String         @default("Manual")
   payRef      String?

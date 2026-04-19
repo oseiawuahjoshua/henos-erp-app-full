@@ -37,7 +37,6 @@ export default function Login() {
 
   async function onSubmit(data) {
     setLoading(true)
-    await new Promise(r => setTimeout(r, 600)) // smooth animation
     await login(data.employeeId, data.password)
     setLoading(false)
   }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../hooks/useToast'
@@ -19,20 +19,39 @@ export default function Accounts() {
   const [payInv, setPayInv]       = useState(null)
   const [delConfirm, setDelConfirm] = useState(null)
   const [invFilter, setInvFilter] = useState('')
+  const [invDateFilter, setInvDateFilter] = useState('')
 
   const paid    = db.invoices.filter(i=>i.status==='Paid').reduce((s,i)=>s+Number(i.amount||0),0)
-  const unp     = db.invoices.filter(i=>i.status!=='Paid').reduce((s,i)=>s+Number(i.amount||0),0)
+  const unp     = db.invoices.reduce((s,i)=>s+Math.max(0, Number(i.amount||0)-Number(i.amountPaid||0)),0)
   const ext     = db.expenses.filter(e=>e.approved).reduce((s,e)=>s+Number(e.amount||0),0)
   const unreadA = db.anotifs.filter(n=>!n.read).length
 
-  const filtInv = invFilter
-    ? db.invoices.filter(i=>i.customer?.toLowerCase().includes(invFilter.toLowerCase()))
-    : db.invoices
+  const filtInv = useMemo(() => {
+    return db.invoices.filter(invoice => {
+      const customerMatches = !invFilter || invoice.customer?.toLowerCase().includes(invFilter.toLowerCase())
+      const invoiceDay = invoice.date || invoice.createdAt?.slice?.(0, 10) || ''
+      const dateMatches = !invDateFilter || invoiceDay === invDateFilter
+      return customerMatches && dateMatches
+    })
+  }, [db.invoices, invDateFilter, invFilter])
 
-  function doDelete() {
-    dispatch({ type:'DB_DELETE', key:delConfirm.key, id:delConfirm.id })
-    toast('success','Deleted.')
-    setDelConfirm(null)
+  async function doDelete() {
+    try {
+      await dispatch({ type:'DB_DELETE', key:delConfirm.key, id:delConfirm.id })
+      toast('success','Deleted.')
+      setDelConfirm(null)
+    } catch (error) {
+      toast('error', error.message || 'Could not delete record.')
+    }
+  }
+
+  async function toggleExpenseApproval(expense) {
+    try {
+      await dispatch({ type:'DB_UPDATE', key:'expenses', id:expense.id, patch:{approved:!expense.approved} })
+      toast('success', expense.approved ? 'Expense moved back to pending.' : 'Expense approved.')
+    } catch (error) {
+      toast('error', error.message || 'Could not update expense.')
+    }
   }
 
   const statusV = s => ({Paid:'success',Unpaid:'danger',Partial:'warning',Overdue:'danger'}[s]||'neutral')
@@ -59,22 +78,25 @@ export default function Accounts() {
       </div>
 
       <Pills tabs={[
-        {id:'invoices',label:'📄 Invoices'},
-        {id:'expenses',label:'💸 Expenses'},
-        {id:'balances',label:'🏦 Balances'},
-        {id:'pl',      label:'📊 P&L'},
+        {id:'invoices',label:'Invoices'},
+        {id:'expenses',label:'Expenses'},
+        {id:'balances',label:'Balances'},
+        {id:'pl',      label:'P&L'},
       ]} active={tab} onChange={setTab} />
 
       {tab==='invoices' && <>
         <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap',alignItems:'center'}}>
           <input value={invFilter} onChange={e=>setInvFilter(e.target.value)}
-            placeholder="🔍 Filter by customer…"
+            placeholder="Filter by customer..."
             style={{flex:1,minWidth:160,border:'1.5px solid var(--b)',borderRadius:7,padding:'8px 11px',fontSize:13,outline:'none'}} />
-          {invFilter && <Button variant="ghost" size="sm" onClick={()=>setInvFilter('')}>Reset</Button>}
+          <input value={invDateFilter} onChange={e=>setInvDateFilter(e.target.value)}
+            type="date"
+            style={{minWidth:180,border:'1.5px solid var(--b)',borderRadius:7,padding:'8px 11px',fontSize:13,outline:'none'}} />
+          {(invFilter || invDateFilter) && <Button variant="ghost" size="sm" onClick={()=>{setInvFilter(''); setInvDateFilter('')}}>Reset</Button>}
         </div>
         <Card><CardBody noPad>
           <Table
-            columns={['Invoice #','Customer','Rep','Amount','Paid','Due','Status','']}
+            columns={['Invoice #','Customer','Rep','Amount','Paid','Balance','Delivery','Due','Status','']}
             rows={filtInv.map(inv=>{
               const bal = Math.max(0,Number(inv.amount||0)-Number(inv.amountPaid||0))
               return [
@@ -83,6 +105,8 @@ export default function Accounts() {
                 <RepBadge name={inv.repName} colors={REP_COLORS} />,
                 money(inv.amount),
                 <span style={{color:'var(--g)',fontWeight:600}}>{money(inv.amountPaid)}</span>,
+                <span style={{color:bal?'var(--r)':'var(--g)',fontWeight:700}}>{money(bal)}</span>,
+                inv.deliveryDate||'—',
                 inv.dueDate||'—',
                 <Badge variant={statusV(inv.status)}>{inv.status}</Badge>,
                 <div style={{display:'flex',gap:4}}>
@@ -105,7 +129,7 @@ export default function Accounts() {
               <span style={{fontSize:11,color:'var(--m)',fontFamily:'monospace'}}>{e.id}</span>,
               e.category||'—', e.description||'—',
               e.amount?money(e.amount):'—', e.date||'—',
-              <button onClick={()=>dispatch({type:'DB_UPDATE',key:'expenses',id:e.id,patch:{approved:!e.approved}})}>
+              <button onClick={()=>toggleExpenseApproval(e)}>
                 <Badge variant={e.approved?'success':'warning'}>{e.approved?'Approved':'Pending'}</Badge>
               </button>,
               <div style={{display:'flex',gap:4}}>
@@ -209,20 +233,25 @@ function InvoiceDrawer({ open, onClose, db, dispatch, toast }) {
 
   const itemTotal = items.reduce((s,it)=>s+Number(it.qty||0)*Number(it.price||0),0)
 
-  function onSubmit(data) {
+  async function onSubmit(data) {
     if (!data.customer) { toast('error','Customer required.'); return }
     if (items.length===0) { toast('error','Add at least one item.'); return }
     if (!itemTotal) { toast('error','At least one item must have a price.'); return }
     const custRec = db.customers.find(c=>c.name.trim().toUpperCase()===data.customer.trim().toUpperCase())
-    dispatch({ type:'DB_INSERT', key:'invoices', record:{
-      id:uid('INV'), date:today(), source:'Manual', amountPaid:0,
-      customer:data.customer.trim().toUpperCase(),
-      amount:itemTotal, items,
-      repName:custRec?.rep||'',
-      dueDate:data.dueDate, status:data.status||'Unpaid',
-    }})
-    toast('success','Invoice created.')
-    reset(); setItems([]); onClose()
+    try {
+      await dispatch({ type:'DB_INSERT', key:'invoices', record:{
+        id:uid('INV'), date:today(), source:'Manual', amountPaid:0,
+        customer:data.customer.trim().toUpperCase(),
+        amount:itemTotal, items,
+        repName:custRec?.rep||'',
+        deliveryDate:data.deliveryDate || null,
+        dueDate:data.dueDate || null, status:data.status||'Unpaid',
+      }})
+      toast('success','Invoice created.')
+      reset(); setItems([]); onClose()
+    } catch (error) {
+      toast('error', error.message || 'Could not create invoice.')
+    }
   }
 
   return (
@@ -233,6 +262,7 @@ function InvoiceDrawer({ open, onClose, db, dispatch, toast }) {
         <datalist id="inv-cu-list">{db.customers.map(c=><option key={c.id} value={c.name}/>)}</datalist>
       </Field>
       <div className="frow">
+        <Field label="Delivery Date"><Input {...register('deliveryDate')} type="date" /></Field>
         <Field label="Due Date"><Input {...register('dueDate')} type="date" /></Field>
         <Field label="Status"><Select {...register('status')}><option>Unpaid</option><option>Partial</option><option>Paid</option></Select></Field>
       </div>
@@ -243,22 +273,28 @@ function InvoiceDrawer({ open, onClose, db, dispatch, toast }) {
 
 // ── Edit Invoice Drawer ───────────────────────────────────────
 function EditInvoiceDrawer({ inv, onClose, db, dispatch, toast }) {
-  const { register, handleSubmit } = useForm({ defaultValues:{ dueDate:inv.dueDate, status:inv.status } })
+  const { register, handleSubmit } = useForm({ defaultValues:{ deliveryDate:inv.deliveryDate, dueDate:inv.dueDate, status:inv.status } })
   const [items, setItems] = useState(inv.items||[])
   const itemTotal = items.reduce((s,it)=>s+Number(it.qty||0)*Number(it.price||0),0)
 
-  function onSubmit(data) {
-    dispatch({ type:'DB_UPDATE', key:'invoices', id:inv.id, patch:{
-      dueDate:data.dueDate, status:data.status,
-      items, amount: itemTotal || Number(inv.amount),
-    }})
-    toast('success','Invoice updated.'); onClose()
+  async function onSubmit(data) {
+    try {
+      await dispatch({ type:'DB_UPDATE', key:'invoices', id:inv.id, patch:{
+        deliveryDate:data.deliveryDate || null,
+        dueDate:data.dueDate || null, status:data.status,
+        items, amount: itemTotal || Number(inv.amount),
+      }})
+      toast('success','Invoice updated.'); onClose()
+    } catch (error) {
+      toast('error', error.message || 'Could not update invoice.')
+    }
   }
   return (
     <Drawer open={true} onClose={onClose} title={`Edit Invoice — ${inv.id}`}
       footer={<><Button className="btnfw" onClick={handleSubmit(onSubmit)}>Save Changes</Button><Button variant="ghost" className="btnfw" onClick={onClose}>Cancel</Button></>}>
       <Field label="Customer"><Input value={inv.customer} disabled style={{background:'var(--bg)',color:'var(--m)'}} /></Field>
       <div className="frow">
+        <Field label="Delivery Date"><Input {...register('deliveryDate')} type="date" /></Field>
         <Field label="Due Date"><Input {...register('dueDate')} type="date" /></Field>
         <Field label="Status"><Select {...register('status')}><option>Unpaid</option><option>Partial</option><option>Paid</option></Select></Field>
       </div>

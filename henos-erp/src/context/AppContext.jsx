@@ -265,6 +265,18 @@ export function AppProvider({ children }) {
   }, [state])
 
   useEffect(() => {
+    if (!state.toasts.length) return undefined
+
+    const timers = state.toasts.map(toast =>
+      setTimeout(() => {
+        setState(prev => reduceState(prev, { type: 'TOAST_REMOVE', id: toast.id }))
+      }, 4500)
+    )
+
+    return () => timers.forEach(clearTimeout)
+  }, [state.toasts])
+
+  useEffect(() => {
     let cancelled = false
 
     async function hydrate() {
@@ -490,13 +502,13 @@ async function handleInsert(action, state, token, session) {
       return
 
     case 'prices':
-      action.record = await apiPost('/api/prices', normalizeBlankStrings(record), token)
+      action.record = await apiPost('/api/prices', sanitizePricePayload(record), token)
       return
 
     case 'invoices': {
       const customer = resolveCustomer(state, record.customer)
       const created = await apiPost('/api/invoices', {
-        ...record,
+        ...sanitizeInvoicePayload(record),
         customerId: customer.id,
         createdById: session.id,
       }, token)
@@ -549,10 +561,10 @@ async function handleUpdate(action, state, token) {
       await apiPatch(`/api/customers/${id}`, normalizeBlankStrings(patch), token)
       return
     case 'prices':
-      await apiPatch(`/api/prices/${id}`, normalizeBlankStrings(patch), token)
+      await apiPatch(`/api/prices/${id}`, sanitizePricePayload(patch), token)
       return
     case 'invoices':
-      await apiPatch(`/api/invoices/${id}`, patch, token)
+      await apiPatch(`/api/invoices/${id}`, sanitizeInvoicePayload(patch), token)
       return
     case 'expenses':
       await apiPatch(`/api/expenses/${id}`, patch, token)
@@ -620,6 +632,35 @@ function stripStationForApi(station) {
   delete next.stock
   delete next.readings
   delete next.capacity
+  return next
+}
+
+function sanitizePricePayload(record) {
+  const next = normalizeBlankStrings({ ...record })
+  delete next.id
+  delete next.createdAt
+  delete next.updatedAt
+  if (next.price !== null && next.price !== undefined) next.price = Number(next.price)
+  return next
+}
+
+function sanitizeInvoicePayload(record) {
+  const next = normalizeBlankStrings({ ...record })
+  delete next.id
+  delete next.createdAt
+  delete next.updatedAt
+
+  if (next.amount !== null && next.amount !== undefined) next.amount = Number(next.amount)
+  if (next.amountPaid !== null && next.amountPaid !== undefined) next.amountPaid = Number(next.amountPaid)
+  if (Array.isArray(next.items)) {
+    next.items = next.items.map(item => ({
+      ...item,
+      qty: Number(item.qty || 0),
+      price: Number(item.price || 0),
+      isBulk: !!item.isBulk,
+    }))
+  }
+
   return next
 }
 
