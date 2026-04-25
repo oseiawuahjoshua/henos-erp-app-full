@@ -68,7 +68,8 @@ function reduceState(state, action) {
       }
 
     case 'DB_INSERT': {
-      const db = { ...state.db, [action.key]: [action.record, ...state.db[action.key]] }
+      const existing = state.db[action.key].filter(record => record.id !== action.record.id)
+      const db = { ...state.db, [action.key]: [action.record, ...existing] }
       return { ...state, db }
     }
 

@@ -14,14 +14,12 @@ import EaziGas from '../pages/EaziGas'
 import ESG from '../pages/ESG'
 import Settings from '../pages/Settings'
 import Users from '../pages/Users'
-import CRM from '../pages/CRM'
 import HR from '../pages/HR'
 import Updates from '../pages/Updates'
 
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', badge: 'DB', path: '/' },
   { id: 'commercial', label: 'Commercial', badge: 'CM', path: '/commercial' },
-  { id: 'crm', label: 'CRM', badge: 'CR', path: '/crm' },
   { id: 'accounts', label: 'Accounts', badge: 'AC', path: '/accounts' },
   { id: 'operations', label: 'Operations', badge: 'OP', path: '/operations' },
   { id: 'marketing', label: 'Branding', badge: 'MK', path: '/marketing' },
@@ -165,7 +163,6 @@ export default function AppShell() {
             <Routes>
               <Route path="/" element={<Protected moduleId="dashboard"><Dashboard /></Protected>} />
               <Route path="/commercial" element={<Protected moduleId="commercial"><Commercial /></Protected>} />
-              <Route path="/crm" element={<Protected moduleId="crm"><CRM /></Protected>} />
               <Route path="/accounts" element={<Protected moduleId="accounts"><Accounts /></Protected>} />
               <Route path="/operations" element={<Protected moduleId="operations"><Operations /></Protected>} />
               <Route path="/marketing" element={<Protected moduleId="marketing"><Marketing /></Protected>} />

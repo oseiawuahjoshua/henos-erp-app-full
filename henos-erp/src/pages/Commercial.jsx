@@ -8,7 +8,7 @@ import { uid, today, ts, money, statusVariant, REPS, REP_COLORS, owedBalance } f
 import { PageHeader, Pills, Card, CardBody, Table, Badge, RepBadge, Button, Drawer, Field, Input, Select, NotifBell, ConfirmModal, Modal } from '../components/ui'
 
 const PRODUCTS = ['50KG Cylinder', '14.5KG Cylinder', '12.5KG Cylinder', '6KG Cylinder', '3KG Cylinder', 'Bulk LPG', 'Autogas']
-const CUST_TYPES = ['CRM DTD', 'B2B']
+const CUST_TYPES = ['Commercial', 'B2B']
 
 export default function Commercial() {
   const { state, dispatch } = useApp()
@@ -26,17 +26,51 @@ export default function Commercial() {
   const [editPrice, setEditPrice] = useState(null)
   const [customerTypeFilter, setCustomerTypeFilter] = useState('all')
   const [b2bDateFilter, setB2bDateFilter] = useState('')
+  const [historyDateFilter, setHistoryDateFilter] = useState('')
+  const [historySearch, setHistorySearch] = useState('')
+  const [customerSearch, setCustomerSearch] = useState('')
+  const [b2bSearch, setB2bSearch] = useState('')
   const [delConfirm, setDelConfirm] = useState(null)
   const [newCustModal, setNewCustModal] = useState(null)
 
   const todaysOrders = useMemo(() => db.orders.filter(order => (order.date || '') === today()), [db.orders])
   const pendingToday = todaysOrders.filter(order => order.status === 'Awaiting Ops Review').length
+  const totalTodayQty = todaysOrders.reduce((sum, order) => sum + Number(order.qty || 0), 0)
+  const normalizedCustomers = useMemo(() => db.customers.map(customer => ({ ...customer, type: normalizeCustomerType(customer.type) })), [db.customers])
   const filteredCustomers = useMemo(() => (
-    db.customers.filter(customer => customerTypeFilter === 'all' || customer.type === customerTypeFilter)
-  ), [customerTypeFilter, db.customers])
+    normalizedCustomers.filter(customer => {
+      const typeMatches = customerTypeFilter === 'all' || customer.type === customerTypeFilter
+      const searchMatches = !customerSearch || [customer.name, customer.region, customer.contact, customer.rep, customer.gps]
+        .some(value => String(value || '').toLowerCase().includes(customerSearch.toLowerCase()))
+      return typeMatches && searchMatches
+    })
+  ), [customerSearch, customerTypeFilter, normalizedCustomers])
   const filteredB2b = useMemo(() => (
-    db.b2b.filter(entry => !b2bDateFilter || entry.date === b2bDateFilter)
-  ), [b2bDateFilter, db.b2b])
+    db.b2b.filter(entry => {
+      const dateMatches = !b2bDateFilter || entry.date === b2bDateFilter
+      const searchMatches = !b2bSearch || [entry.customerName, entry.bdc, entry.depot, entry.orderNumber, entry.vehicleNumber]
+        .some(value => String(value || '').toLowerCase().includes(b2bSearch.toLowerCase()))
+      return dateMatches && searchMatches
+    })
+  ), [b2bDateFilter, b2bSearch, db.b2b])
+  const filteredHistory = useMemo(() => (
+    db.orders.filter(order => {
+      const orderDate = order.deliveredAt || order.approvedAt || order.cancelledAt || order.date || ''
+      const dateMatches = !historyDateFilter || orderDate === historyDateFilter
+      const searchMatches = !historySearch || [order.id, order.customer, order.product, order.placedBy, order.status]
+        .some(value => String(value || '').toLowerCase().includes(historySearch.toLowerCase()))
+      return dateMatches && searchMatches
+    })
+  ), [db.orders, historyDateFilter, historySearch])
+  const newCustomersThisMonth = filteredCustomers.filter(customer => {
+    const created = customer.createdAt ? String(customer.createdAt).slice(0, 7) : ''
+    return created === today().slice(0, 7)
+  }).length
+  const orderTrend = useMemo(() => buildDailyTrend(db.orders, order => order.date, order => Number(order.qty || 0), 7), [db.orders])
+  const b2bTrend = useMemo(() => buildDailyTrend(db.b2b, entry => entry.date, entry => Number(entry.volume || 0), 7), [db.b2b])
+  const b2bVolumeToday = filteredB2b
+    .filter(entry => !b2bDateFilter || entry.date === b2bDateFilter)
+    .reduce((sum, entry) => sum + Number(entry.volume || 0), 0)
 
   const tabs = [
     { id: 'orders', label: 'Orders', badge: pendingToday || null },
@@ -102,17 +136,28 @@ export default function Commercial() {
         <Card>
           <div className="phd" style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
             <span className="ptl2">Today&apos;s Orders</span>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => exportRowsAsCsv(
-                'commercial-orders-today',
-                ['Order ID', 'Customer', 'Product', 'Qty', 'Total', 'Placed By', 'Date', 'Status'],
-                todaysOrders.map(order => [order.id, order.customer || '', order.product || '', order.qty || '', order.qty && order.unitPrice ? order.qty * order.unitPrice : '', order.placedBy || '', order.date || '', order.status || '']),
-              )}
-            >
-              Export CSV
-            </Button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: 'var(--m)' }}>Total Qty: <strong style={{ color: '#0D0F14' }}>{totalTodayQty}</strong></span>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => exportRowsAsCsv(
+                  'commercial-orders-today',
+                  ['Order ID', 'Customer', 'Product', 'Qty', 'Total', 'Placed By', 'Date', 'Status'],
+                  todaysOrders.map(order => [order.id, order.customer || '', order.product || '', order.qty || '', order.qty && order.unitPrice ? order.qty * order.unitPrice : '', order.placedBy || '', order.date || '', order.status || '']),
+                )}
+              >
+                Export CSV
+              </Button>
+            </div>
+          </div>
+          <div style={{ padding: '0 16px 14px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12, marginBottom: 12 }}>
+              <SummaryTile label="Orders Today" value={todaysOrders.length} note="Active order board" />
+              <SummaryTile label="Total Quantity" value={totalTodayQty} note="Across all products" />
+              <SummaryTile label="Pending Review" value={pendingToday} note="Awaiting Operations" />
+            </div>
+            <TrendCard title="Order Trend - Last 7 Days" subtitle="Tracks order count and quantities placed each day." points={orderTrend} unit="qty" />
           </div>
           <CardBody noPad>
             <Table
@@ -153,13 +198,18 @@ export default function Commercial() {
               >
                 Export CSV
               </Button>
-              <Button variant="secondary" size="sm" onClick={() => printOrderHistory(db.orders)}>Print</Button>
+              <Button variant="secondary" size="sm" onClick={() => printOrderHistory(filteredHistory)}>Print</Button>
             </div>
+          </div>
+          <div style={{ padding: '0 16px 14px', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input value={historySearch} onChange={event => setHistorySearch(event.target.value)} placeholder="Search customer, product, order ID..." style={filterInputStyle(true)} />
+            <input value={historyDateFilter} onChange={event => setHistoryDateFilter(event.target.value)} type="date" style={filterInputStyle()} />
+            {(historySearch || historyDateFilter) && <Button variant="ghost" size="sm" onClick={() => { setHistorySearch(''); setHistoryDateFilter('') }}>Reset</Button>}
           </div>
           <CardBody noPad>
             <Table
               columns={['Order ID', 'Customer', 'Product', 'Qty', 'Total', 'Placed By', 'Date', 'Status', '']}
-              rows={db.orders.map(order => [
+              rows={filteredHistory.map(order => [
                 <span style={{ fontSize: 11, color: 'var(--a)', fontFamily: 'monospace' }}>{order.id}</span>,
                 order.customer || '-',
                 order.product || '-',
@@ -181,7 +231,7 @@ export default function Commercial() {
           <div className="phd" style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
               <button className={`pill${customerTypeFilter === 'all' ? ' on' : ''}`} onClick={() => setCustomerTypeFilter('all')}>All</button>
-              <button className={`pill${customerTypeFilter === 'CRM DTD' ? ' on' : ''}`} onClick={() => setCustomerTypeFilter('CRM DTD')}>CRM DTD</button>
+              <button className={`pill${customerTypeFilter === 'Commercial' ? ' on' : ''}`} onClick={() => setCustomerTypeFilter('Commercial')}>Commercial</button>
               <button className={`pill${customerTypeFilter === 'B2B' ? ' on' : ''}`} onClick={() => setCustomerTypeFilter('B2B')}>B2B</button>
             </div>
             <Button
@@ -196,13 +246,24 @@ export default function Commercial() {
               Export CSV
             </Button>
           </div>
+          <div style={{ padding: '0 16px 14px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12, marginBottom: 12 }}>
+              <SummaryTile label="Visible Customers" value={filteredCustomers.length} note="Current filter result" />
+              <SummaryTile label="New This Month" value={newCustomersThisMonth} note="Created in current month" />
+              <SummaryTile label="B2B Customers" value={normalizedCustomers.filter(customer => normalizeCustomerType(customer.type) === 'B2B').length} note="Across all records" />
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <input value={customerSearch} onChange={event => setCustomerSearch(event.target.value)} placeholder="Search customer, contact, region..." style={filterInputStyle(true)} />
+              {customerSearch && <Button variant="ghost" size="sm" onClick={() => setCustomerSearch('')}>Reset</Button>}
+            </div>
+          </div>
           <CardBody noPad>
             <Table
               columns={['ID', 'Name', 'Type', 'Region', 'Contact', 'GPS', 'Acct Mgr', 'Status', '']}
               rows={filteredCustomers.map(customer => [
                 <span style={{ fontSize: 11, color: 'var(--m)', fontFamily: 'monospace' }}>{customer.id}</span>,
                 customer.name || '-',
-                customer.type || '-',
+                normalizeCustomerType(customer.type) || '-',
                 customer.region || '-',
                 customer.contact || '-',
                 customer.gps || '-',
@@ -215,6 +276,10 @@ export default function Commercial() {
               ])}
               empty="No customers yet"
             />
+            <div style={{ padding: '10px 14px', borderTop: '1px solid var(--b)', display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', fontSize: 12, color: 'var(--m)' }}>
+              <span>Total customers shown: <strong style={{ color: '#0D0F14' }}>{filteredCustomers.length}</strong></span>
+              <span>New this month: <strong style={{ color: 'var(--g)' }}>{newCustomersThisMonth}</strong></span>
+            </div>
           </CardBody>
         </Card>
       )}
@@ -238,6 +303,17 @@ export default function Commercial() {
             >
               Export CSV
             </Button>
+          </div>
+          <div style={{ padding: '0 16px 14px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12, marginBottom: 12 }}>
+              <SummaryTile label="Entries Shown" value={filteredB2b.length} note="Current B2B filter" />
+              <SummaryTile label="Total Volume" value={b2bVolumeToday} note={b2bDateFilter ? `For ${b2bDateFilter}` : 'Visible entries'} />
+            </div>
+            <TrendCard title="B2B Volume Trend - Last 7 Days" subtitle="Daily B2B volume movement." points={b2bTrend} unit="kg" />
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 12 }}>
+              <input value={b2bSearch} onChange={event => setB2bSearch(event.target.value)} placeholder="Search customer, BDC, depot, vehicle..." style={filterInputStyle(true)} />
+              {b2bSearch && <Button variant="ghost" size="sm" onClick={() => setB2bSearch('')}>Reset</Button>}
+            </div>
           </div>
           <CardBody noPad>
             <Table
@@ -460,7 +536,7 @@ function EditOrderDrawer({ order, onClose, dispatch, toast }) {
 }
 
 function CustomerDrawer({ open, onClose, dispatch, toast }) {
-  const { register, handleSubmit, reset, formState: { errors } } = useForm({ defaultValues: { status: 'Active', type: 'CRM DTD' } })
+  const { register, handleSubmit, reset, formState: { errors } } = useForm({ defaultValues: { status: 'Active', type: 'Commercial' } })
 
   async function onSubmit(data) {
     try {
@@ -479,7 +555,7 @@ function CustomerDrawer({ open, onClose, dispatch, toast }) {
         },
       })
       toast('success', 'Customer added.')
-      reset({ status: 'Active', type: 'CRM DTD' })
+      reset({ status: 'Active', type: 'Commercial' })
       onClose()
     } catch (error) {
       toast('error', error.message || 'Could not add customer.')
@@ -490,7 +566,7 @@ function CustomerDrawer({ open, onClose, dispatch, toast }) {
     <Drawer open={open} onClose={onClose} title="Add Customer" footer={<><Button className="btnfw" onClick={handleSubmit(onSubmit)}>Save Customer</Button><Button variant="ghost" className="btnfw" onClick={onClose}>Cancel</Button></>}>
       <Field label="Company / Name" required error={errors.name?.message}><Input {...register('name', { required: 'Required' })} placeholder="e.g. Metro Fast Food" /></Field>
       <div className="frow">
-        <Field label="Type"><Select {...register('type')}><option value="">Select...</option>{CUST_TYPES.map(type => <option key={type}>{type}</option>)}</Select></Field>
+      <Field label="Type"><Select {...register('type')}><option value="">Select...</option>{CUST_TYPES.map(type => <option key={type}>{type}</option>)}</Select></Field>
         <Field label="Region"><Input {...register('region')} placeholder="e.g. Accra North" /></Field>
       </div>
       <Field label="Contact & Phone"><Input {...register('contact')} placeholder="Name and phone" /></Field>
@@ -531,7 +607,7 @@ function EditCustomerDrawer({ cust, onClose, dispatch, toast }) {
     <Drawer open={!!cust} onClose={onClose} title={`Edit - ${cust.name}`} footer={<><Button className="btnfw" onClick={handleSubmit(onSubmit)}>Save Changes</Button><Button variant="ghost" className="btnfw" onClick={onClose}>Cancel</Button></>}>
       <Field label="Company / Name"><Input {...register('name')} /></Field>
       <div className="frow">
-        <Field label="Type"><Select {...register('type')}><option value="">Select...</option>{CUST_TYPES.map(type => <option key={type}>{type}</option>)}</Select></Field>
+      <Field label="Type"><Select {...register('type')}><option value="">Select...</option>{CUST_TYPES.map(type => <option key={type}>{type}</option>)}</Select></Field>
         <Field label="Region"><Input {...register('region')} /></Field>
       </div>
       <Field label="Contact & Phone"><Input {...register('contact')} /></Field>
@@ -577,7 +653,7 @@ function B2BDrawer({ open, onClose, dispatch, toast, customers }) {
         <Field label="Date"><Input {...register('date')} type="date" /></Field>
         <Field label="Customer Name">
           <Input {...register('customerName')} list="b2b-customers" placeholder="Select or type customer name" />
-          <datalist id="b2b-customers">{customers.filter(customer => customer.type === 'B2B').map(customer => <option key={customer.id} value={customer.name} />)}</datalist>
+          <datalist id="b2b-customers">{customers.filter(customer => normalizeCustomerType(customer.type) === 'B2B').map(customer => <option key={customer.id} value={customer.name} />)}</datalist>
         </Field>
       </div>
       <div className="frow">
@@ -645,7 +721,7 @@ function EditPriceDrawer({ price, onClose, dispatch, toast }) {
 }
 
 function NewCustomerModal({ custName, onCancel, onSave }) {
-  const { register, handleSubmit, formState: { errors } } = useForm({ defaultValues: { name: custName, type: 'CRM DTD', status: 'Active' } })
+  const { register, handleSubmit, formState: { errors } } = useForm({ defaultValues: { name: custName, type: 'Commercial', status: 'Active' } })
 
   function onSubmit(data) {
     onSave({
@@ -706,4 +782,91 @@ function printSingleOrder(order) {
   const win = window.open('', '_blank', 'width=640,height=520')
   win.document.write(`<!doctype html><html><head><meta charset="UTF-8"><title>${order.id}</title><style>body{font-family:Arial,sans-serif;padding:24px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.box{background:#f8fbff;border:1px solid #dbeafe;border-radius:10px;padding:12px}.label{font-size:10px;text-transform:uppercase;color:#64748b;margin-bottom:4px}.value{font-size:14px;font-weight:700}button{margin-top:18px;padding:10px 22px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;font-weight:700}</style></head><body><h2>Order ${order.id}</h2><div class="grid">${[['Customer', order.customer], ['Product', order.product], ['Qty', order.qty], ['Total', order.qty && order.unitPrice ? money(order.qty * order.unitPrice) : '-'], ['Placed By', order.placedBy], ['Date', order.date], ['Status', order.status], ['Delivery Date', order.deliveryDate || '-']].map(([label, value]) => `<div class="box"><div class="label">${label}</div><div class="value">${value || '-'}</div></div>`).join('')}</div><button onclick="window.print()">Print</button></body></html>`)
   win.document.close()
+}
+
+function normalizeCustomerType(type) {
+  if (!type || type === 'CRM DTD') return 'Commercial'
+  return type
+}
+
+function filterInputStyle(flexible = false) {
+  return {
+    flex: flexible ? 1 : undefined,
+    minWidth: 180,
+    border: '1.5px solid var(--b)',
+    borderRadius: 7,
+    padding: '7px 10px',
+    fontSize: 13,
+    outline: 'none',
+  }
+}
+
+function SummaryTile({ label, value, note }) {
+  return (
+    <div style={{ background: 'var(--bg)', border: '1px solid var(--b)', borderRadius: 12, padding: '12px 14px' }}>
+      <div style={{ fontSize: 10, color: 'var(--m)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 800, color: '#0D0F14' }}>{value}</div>
+      {note && <div style={{ fontSize: 12, color: 'var(--m)', marginTop: 4 }}>{note}</div>}
+    </div>
+  )
+}
+
+function buildDailyTrend(items, dateSelector, valueSelector, days = 7) {
+  const points = []
+  for (let offset = days - 1; offset >= 0; offset -= 1) {
+    const day = new Date()
+    day.setDate(day.getDate() - offset)
+    const key = day.toISOString().slice(0, 10)
+    const dayItems = items.filter(item => (dateSelector(item) || '') === key)
+    points.push({
+      date: key,
+      count: dayItems.length,
+      value: dayItems.reduce((sum, item) => sum + Number(valueSelector(item) || 0), 0),
+    })
+  }
+  return points
+}
+
+function TrendCard({ title, subtitle, points, unit }) {
+  const max = Math.max(...points.map(point => point.count || 0), 1)
+  const path = points.map((point, index) => {
+    const x = points.length === 1 ? 12 : 12 + (index * (276 / (points.length - 1)))
+    const y = 88 - ((point.count || 0) / max) * 56
+    return `${index === 0 ? 'M' : 'L'} ${x} ${y}`
+  }).join(' ')
+
+  return (
+    <div style={{ background: 'linear-gradient(180deg,#f8fbff,#ffffff)', border: '1px solid var(--b)', borderRadius: 14, padding: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 8 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{title}</div>
+          <div style={{ fontSize: 12, color: 'var(--m)' }}>{subtitle}</div>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--m)' }}>Latest total: <strong style={{ color: '#0D0F14' }}>{points.at(-1)?.value || 0} {unit}</strong></div>
+      </div>
+      <svg viewBox="0 0 300 110" style={{ width: '100%', height: 110 }}>
+        <path d="M 12 88 L 288 88" stroke="#dbeafe" strokeWidth="1" fill="none" />
+        <path d={path} stroke="#1d4ed8" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        {points.map((point, index) => {
+          const x = points.length === 1 ? 12 : 12 + (index * (276 / (points.length - 1)))
+          const y = 88 - ((point.count || 0) / max) * 56
+          return (
+            <g key={point.date}>
+              <circle cx={x} cy={y} r="4" fill="#1d4ed8" />
+              <text x={x} y="104" textAnchor="middle" style={{ fontSize: 9, fill: '#64748b' }}>{point.date.slice(5)}</text>
+            </g>
+          )
+        })}
+      </svg>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(110px,1fr))', gap: 8, marginTop: 8 }}>
+        {points.map(point => (
+          <div key={point.date} style={{ background: '#fff', border: '1px solid var(--b)', borderRadius: 10, padding: '8px 10px' }}>
+            <div style={{ fontSize: 10, color: 'var(--m)', marginBottom: 4 }}>{point.date}</div>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>{point.count} orders</div>
+            <div style={{ fontSize: 11, color: '#1d4ed8' }}>{point.value} {unit}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }

@@ -21,6 +21,9 @@ export default function Accounts() {
   const [delConfirm, setDelConfirm] = useState(null)
   const [invFilter, setInvFilter] = useState('')
   const [invDateFilter, setInvDateFilter] = useState('')
+  const [customerSearch, setCustomerSearch] = useState('')
+  const [expenseSearch, setExpenseSearch] = useState('')
+  const [balanceSearch, setBalanceSearch] = useState('')
 
   const paid    = db.invoices.filter(i=>i.status==='Paid').reduce((s,i)=>s+Number(i.amount||0),0)
   const unp     = db.invoices.reduce((s,i)=>s+Math.max(0, Number(i.amount||0)-Number(i.amountPaid||0)),0)
@@ -35,6 +38,16 @@ export default function Accounts() {
       return customerMatches && dateMatches
     })
   }, [db.invoices, invDateFilter, invFilter])
+
+  const filteredCustomers = useMemo(() => db.customers.filter(customer =>
+    !customerSearch || [customer.name, customer.type, customer.region, customer.contact, customer.rep]
+      .some(value => String(value || '').toLowerCase().includes(customerSearch.toLowerCase()))
+  ), [customerSearch, db.customers])
+
+  const filteredExpenses = useMemo(() => db.expenses.filter(expense =>
+    !expenseSearch || [expense.id, expense.category, expense.description, expense.date]
+      .some(value => String(value || '').toLowerCase().includes(expenseSearch.toLowerCase()))
+  ), [db.expenses, expenseSearch])
 
   async function doDelete() {
     try {
@@ -133,9 +146,13 @@ export default function Accounts() {
             <span className="ptl2">Customer Register</span>
             <Button variant="secondary" size="sm" onClick={()=>exportRowsAsCsv('accounts-customers', ['ID','Name','Type','Region','Contact','GPS','Account Manager','Status'], db.customers.map(c => [c.id, c.name || '', c.type || '', c.region || '', c.contact || '', c.gps || '', c.rep || '', c.status || '']))}>Export CSV</Button>
           </div>
+          <div style={{padding:'0 16px 14px',display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+            <input value={customerSearch} onChange={e=>setCustomerSearch(e.target.value)} placeholder="Search customer, type, region..." style={{flex:1,minWidth:180,border:'1.5px solid var(--b)',borderRadius:7,padding:'8px 11px',fontSize:13,outline:'none'}} />
+            {customerSearch && <Button variant="ghost" size="sm" onClick={()=>setCustomerSearch('')}>Reset</Button>}
+          </div>
           <Table
             columns={['ID','Name','Type','Region','Contact','GPS','Acct Mgr','Status']}
-            rows={db.customers.map(c => [
+            rows={filteredCustomers.map(c => [
               <span style={{fontSize:11,color:'var(--m)',fontFamily:'monospace'}}>{c.id}</span>,
               c.name || '—',
               c.type || '—',
@@ -156,9 +173,13 @@ export default function Accounts() {
             <span className="ptl2">Expenses</span>
             <Button variant="secondary" size="sm" onClick={()=>exportRowsAsCsv('accounts-expenses', ['ID','Category','Description','Amount','Date','Approved'], db.expenses.map(e => [e.id, e.category || '', e.description || '', e.amount || '', e.date || '', e.approved ? 'Approved' : 'Pending']))}>Export CSV</Button>
           </div>
+          <div style={{padding:'0 16px 14px',display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+            <input value={expenseSearch} onChange={e=>setExpenseSearch(e.target.value)} placeholder="Search expense, category, date..." style={{flex:1,minWidth:180,border:'1.5px solid var(--b)',borderRadius:7,padding:'8px 11px',fontSize:13,outline:'none'}} />
+            {expenseSearch && <Button variant="ghost" size="sm" onClick={()=>setExpenseSearch('')}>Reset</Button>}
+          </div>
           <Table
             columns={['ID','Category','Description','Amount','Date','Approved','']}
-            rows={db.expenses.map(e=>[
+            rows={filteredExpenses.map(e=>[
               <span style={{fontSize:11,color:'var(--m)',fontFamily:'monospace'}}>{e.id}</span>,
               e.category||'—', e.description||'—',
               e.amount?money(e.amount):'—', e.date||'—',
@@ -174,7 +195,7 @@ export default function Accounts() {
         </CardBody></Card>
       )}
 
-      {tab==='balances' && <BalanceSummary invoices={db.invoices} onPrint={()=>printBalances(db.invoices)} onExport={()=>exportBalanceCsv(db.invoices)} />}
+      {tab==='balances' && <BalanceSummary invoices={db.invoices} search={balanceSearch} onSearchChange={setBalanceSearch} onPrint={()=>printBalances(db.invoices, balanceSearch)} onExport={()=>exportBalanceCsv(db.invoices, balanceSearch)} />}
       {tab==='pl' && <PLView paid={paid} unp={unp} ext={ext} invoices={db.invoices} expenses={db.expenses} />}
 
       <InvoiceDrawer open={invOpen} onClose={()=>setInvOpen(false)} db={db} dispatch={dispatch} toast={toast} />
@@ -432,7 +453,7 @@ function EditExpenseDrawer({ exp, onClose, dispatch, toast }) {
 }
 
 // ── Balance Summary ───────────────────────────────────────────
-function BalanceSummary({ invoices, onPrint, onExport }) {
+function BalanceSummary({ invoices, search, onSearchChange, onPrint, onExport }) {
   const custMap = {}
   invoices.forEach(inv=>{
     const k=(inv.customer||'').trim().toUpperCase()
@@ -441,7 +462,9 @@ function BalanceSummary({ invoices, onPrint, onExport }) {
     custMap[k].paid+=Number(inv.amountPaid||0)
     custMap[k].count++
   })
-  const list=Object.values(custMap).sort((a,b)=>(b.total-b.paid)-(a.total-a.paid))
+  const list=Object.values(custMap)
+    .filter(item => !search || item.customer.toLowerCase().includes(search.toLowerCase()))
+    .sort((a,b)=>(b.total-b.paid)-(a.total-a.paid))
   const totalOwed=list.reduce((s,c)=>s+(c.total-c.paid),0)
   if(!list.length) return <EmptyState icon="🏦" message="No customer balance data yet" />
   return (
@@ -451,6 +474,10 @@ function BalanceSummary({ invoices, onPrint, onExport }) {
         {onPrint && <Button variant="secondary" size="sm" onClick={onPrint}>🖨 Print</Button>}
       </>} />
       <CardBody noPad>
+        <div style={{padding:'0 16px 14px',display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+          <input value={search} onChange={e=>onSearchChange(e.target.value)} placeholder="Search customer balance..." style={{flex:1,minWidth:180,border:'1.5px solid var(--b)',borderRadius:7,padding:'8px 11px',fontSize:13,outline:'none'}} />
+          {search && <Button variant="ghost" size="sm" onClick={()=>onSearchChange('')}>Reset</Button>}
+        </div>
         <Table
           columns={['Customer','Invoices','Total Invoiced','Amount Paid','Balance Due']}
           rows={list.map(c=>{
@@ -472,7 +499,7 @@ function BalanceSummary({ invoices, onPrint, onExport }) {
   )
 }
 
-function exportBalanceCsv(invoices) {
+function exportBalanceCsv(invoices, search = '') {
   const custMap = {}
   invoices.forEach(inv => {
     const key = (inv.customer || '').trim().toUpperCase()
@@ -481,7 +508,9 @@ function exportBalanceCsv(invoices) {
     custMap[key].paid += Number(inv.amountPaid || 0)
     custMap[key].count += 1
   })
-  const list = Object.values(custMap).map(item => [item.customer, item.count, item.total, item.paid, item.total - item.paid])
+  const list = Object.values(custMap)
+    .filter(item => !search || item.customer.toLowerCase().includes(search.toLowerCase()))
+    .map(item => [item.customer, item.count, item.total, item.paid, item.total - item.paid])
   exportRowsAsCsv('accounts-balances', ['Customer','Invoices','Total Invoiced','Amount Paid','Balance Due'], list)
 }
 
@@ -577,14 +606,16 @@ function printInvoice(inv) {
   win.document.close()
 }
 
-function printBalances(invoices) {
+function printBalances(invoices, search = '') {
   const custMap = {}
   invoices.forEach(inv=>{
     const k=(inv.customer||'').trim().toUpperCase()
     if(!custMap[k]) custMap[k]={customer:k,total:0,paid:0,count:0}
     custMap[k].total+=Number(inv.amount||0); custMap[k].paid+=Number(inv.amountPaid||0); custMap[k].count++
   })
-  const list = Object.values(custMap).sort((a,b)=>(b.total-b.paid)-(a.total-a.paid))
+  const list = Object.values(custMap)
+    .filter(item => !search || item.customer.toLowerCase().includes(search.toLowerCase()))
+    .sort((a,b)=>(b.total-b.paid)-(a.total-a.paid))
   const totalOwed = list.reduce((s,c)=>s+(c.total-c.paid),0)
   const rows = list.map((c,i)=>{
     const owed=c.total-c.paid

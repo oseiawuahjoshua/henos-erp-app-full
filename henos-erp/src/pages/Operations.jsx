@@ -26,6 +26,7 @@ export default function Operations() {
   const { db, holding, holdingView, deliveredLog } = state
   const [tab, setTab]             = useState('review')
   const [delFilterDate, setDelFilterDate] = useState('')
+  const [deliveredSearch, setDeliveredSearch] = useState('')
   const [delConfirm, setDelConfirm]       = useState(null)
   const [stockOpen, setStockOpen]         = useState(false)
   const [delOpen, setDelOpen]             = useState(false)
@@ -69,7 +70,12 @@ export default function Operations() {
   }
 
   const allDates = [...new Set(deliveredLog.map(e=>e.deliveredAt))].sort((a,b)=>b.localeCompare(a))
-  const filteredLog = delFilterDate ? deliveredLog.filter(e=>e.deliveredAt===delFilterDate) : deliveredLog
+  const filteredLog = deliveredLog.filter(entry => {
+    const dateMatches = !delFilterDate || entry.deliveredAt === delFilterDate
+    const searchMatches = !deliveredSearch || [entry.orderId, entry.customer, entry.product, entry.placedBy, entry.invoiceId]
+      .some(value => String(value || '').toLowerCase().includes(deliveredSearch.toLowerCase()))
+    return dateMatches && searchMatches
+  })
   const logTotal = filteredLog.reduce((s,e)=>s+Number(e.value||0),0)
 
   const sbv = s => ({OK:'success',Low:'warning',Critical:'danger',Out:'danger'}[s]||'neutral')
@@ -204,7 +210,8 @@ export default function Operations() {
                 <option value="">— All dates —</option>
                 {allDates.map(d=><option key={d} value={d}>{d}</option>)}
               </select>
-              {delFilterDate&&<Button variant="ghost" size="sm" onClick={()=>setDelFilterDate('')}>✕ Clear</Button>}
+              <input value={deliveredSearch} onChange={e=>setDeliveredSearch(e.target.value)} placeholder="Search customer, order, invoice..." style={{minWidth:200,border:'1.5px solid var(--b)',borderRadius:7,padding:'5px 10px',fontSize:13,outline:'none'}} />
+              {(delFilterDate || deliveredSearch)&&<Button variant="ghost" size="sm" onClick={()=>{setDelFilterDate(''); setDeliveredSearch('')}}>✕ Clear</Button>}
               <Button variant="secondary" size="sm" onClick={()=>exportRowsAsCsv('operations-delivered-log', ['Order ID','Customer','Product','Qty','Value','Placed By','Invoice','Delivered'], filteredLog.map(e => [e.orderId, e.customer || '', e.product || '', e.qty || '', e.value || '', e.placedBy || '', e.invoiceId || '', e.deliveredAt || '']))}>Export CSV</Button>
               <Button variant="secondary" size="sm" onClick={()=>printDeliveredLog(filteredLog,delFilterDate)}>🖨 Print</Button>
               {delFilterDate&&<span style={{background:'var(--bls)',color:'var(--bl)',fontSize:12,fontWeight:700,borderRadius:8,padding:'4px 12px'}}>📅 {delFilterDate} — {filteredLog.length} order{filteredLog.length!==1?'s':''}{logTotal?` · ${money(logTotal)}`:''}</span>}

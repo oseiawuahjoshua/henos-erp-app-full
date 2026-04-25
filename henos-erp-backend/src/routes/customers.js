@@ -4,6 +4,14 @@ import { requireAuth, requireModule } from '../middleware/auth.js'
 const router = express.Router()
 router.use(requireAuth)
 
+function normalizeCustomerPayload(body = {}) {
+  return {
+    ...body,
+    name: body.name ? body.name.trim().toUpperCase() : body.name,
+    type: body.type === 'CRM DTD' ? 'Commercial' : body.type,
+  }
+}
+
 function canReadCustomers(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' })
   const modules = req.user.modules || []
@@ -23,11 +31,21 @@ router.get('/', canReadCustomers, async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }) }
 })
 router.post('/', requireModule('commercial'), async (req, res) => {
-  try { res.status(201).json(await prisma.customer.create({ data: req.body })) }
-  catch (e) { res.status(500).json({ error: e.message }) }
+  try {
+    const payload = normalizeCustomerPayload(req.body)
+    const created = await prisma.customer.create({ data: payload })
+    res.status(201).json(created)
+  }
+  catch (e) {
+    if (e.code === 'P2002' && req.body?.name) {
+      const existing = await prisma.customer.findUnique({ where: { name: req.body.name.trim().toUpperCase() } })
+      if (existing) return res.json(existing)
+    }
+    res.status(500).json({ error: e.message })
+  }
 })
 router.patch('/:id', requireModule('commercial'), async (req, res) => {
-  try { res.json(await prisma.customer.update({ where:{id:req.params.id}, data:req.body })) }
+  try { res.json(await prisma.customer.update({ where:{id:req.params.id}, data:normalizeCustomerPayload(req.body) })) }
   catch (e) { res.status(500).json({ error: e.message }) }
 })
 router.delete('/:id', requireModule('commercial'), async (req, res) => {
