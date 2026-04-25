@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../hooks/useToast'
+import { exportRowsAsCsv } from '../utils/csv'
 import { uid, today, ts, money, statusVariant, REPS, REP_COLORS, owedBalance, HOLDING_CYLS, WINNEBA_CYLS, calcHoldingClosing, calcWcdClosing, calcEpClosing } from '../utils/helpers'
 import { PageHeader, Pills, Card, CardBody, CardHeader, Table, Badge, RepBadge, Button, Drawer, Field, Input, Select, EmptyState, ConfirmModal, KpiCard } from '../components/ui'
 
@@ -204,6 +205,7 @@ export default function Operations() {
                 {allDates.map(d=><option key={d} value={d}>{d}</option>)}
               </select>
               {delFilterDate&&<Button variant="ghost" size="sm" onClick={()=>setDelFilterDate('')}>✕ Clear</Button>}
+              <Button variant="secondary" size="sm" onClick={()=>exportRowsAsCsv('operations-delivered-log', ['Order ID','Customer','Product','Qty','Value','Placed By','Invoice','Delivered'], filteredLog.map(e => [e.orderId, e.customer || '', e.product || '', e.qty || '', e.value || '', e.placedBy || '', e.invoiceId || '', e.deliveredAt || '']))}>Export CSV</Button>
               <Button variant="secondary" size="sm" onClick={()=>printDeliveredLog(filteredLog,delFilterDate)}>🖨 Print</Button>
               {delFilterDate&&<span style={{background:'var(--bls)',color:'var(--bl)',fontSize:12,fontWeight:700,borderRadius:8,padding:'4px 12px'}}>📅 {delFilterDate} — {filteredLog.length} order{filteredLog.length!==1?'s':''}{logTotal?` · ${money(logTotal)}`:''}</span>}
             </div>}
@@ -242,6 +244,10 @@ export default function Operations() {
       {/* ── DELIVERIES ── */}
       {tab==='deliveries' && (
         <Card><CardBody noPad>
+          <div className="phd" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}>
+            <span className="ptl2">Deliveries</span>
+            <Button variant="secondary" size="sm" onClick={()=>exportRowsAsCsv('operations-deliveries', ['ID','Order Ref','Driver','Truck','Destination','Exchange Points','ETA','Status'], db.deliveries.map(d => [d.id, d.orderRef || '', d.driver || '', d.truck || '', d.destination || '', (d.exchangePoints || []).join(' | '), d.eta || '', d.status || '']))}>Export CSV</Button>
+          </div>
           <Table
             columns={['ID','Order Ref','Driver','Truck','Destination','ETA','Status','']}
             rows={db.deliveries.map(d=>[
@@ -987,22 +993,28 @@ function StockDrawer({ open, onClose, dispatch, toast }) {
   )
 }
 
-function LocationField({ register, watch, epLocations }) {
-  const locVal = watch('locationType','ep')
+function LocationField({ mode, selectedPoints, setSelectedPoints, register, locationOptions }) {
+  function toggleOption(option) {
+    setSelectedPoints(current => current.includes(option) ? current.filter(item => item !== option) : [...current, option])
+  }
   return (
     <>
       <Field label="Delivery Location">
-        <Select {...register('locationType')} defaultValue="ep">
-          <option value="ep">EaziGas Exchange Point</option>
+        <Select {...register('locationType')} defaultValue="exchange">
+          <option value="exchange">Exchange Point / CRM DTD</option>
           <option value="other">Other (type below)</option>
         </Select>
       </Field>
-      {locVal === 'ep' ? (
-        <Field label="Exchange Point" >
-          <Select {...register('destination')}>
-            <option value="">Select exchange point…</option>
-            {epLocations.map(ep=><option key={ep.id} value={ep.name + ' — ' + ep.location}>{ep.name} ({ep.location})</option>)}
-          </Select>
+      {mode === 'exchange' ? (
+        <Field label="Exchange Points / Drop Points">
+          <div style={{display:'grid',gap:8}}>
+            {locationOptions.map(option => (
+              <label key={option} style={{display:'flex',alignItems:'center',gap:8,border:'1.5px solid var(--b)',borderRadius:8,padding:'9px 11px',fontSize:13}}>
+                <input type="checkbox" checked={selectedPoints.includes(option)} onChange={()=>toggleOption(option)} />
+                <span>{option}</span>
+              </label>
+            ))}
+          </div>
         </Field>
       ) : (
         <Field label="Custom Destination">
@@ -1016,18 +1028,23 @@ function LocationField({ register, watch, epLocations }) {
 function DelivDrawer({ open, onClose, dispatch, toast }) {
   const { state } = useApp()
   const epLocations = state.exchangePoints || []
-  const { register, handleSubmit, reset, watch, formState:{errors} } = useForm({ defaultValues: { locationType:'ep' } })
+  const locationOptions = ['CRM DTD', ...epLocations.map(ep => `${ep.name}${ep.location ? ` - ${ep.location}` : ''}`)]
+  const { register, handleSubmit, reset, watch } = useForm({ defaultValues: { locationType:'exchange' } })
   const [items, setItems] = useState([])
+  const [selectedPoints, setSelectedPoints] = useState([])
+  const locationMode = watch('locationType', 'exchange')
   async function onSubmit(d) {
-    if (!d.destination) { toast('error','Destination required.'); return }
+    const destination = locationMode === 'exchange' ? selectedPoints.join(' | ') : d.destination
+    if (!destination) { toast('error','Destination required.'); return }
     try {
       await dispatch({ type:'DB_INSERT', key:'deliveries', record:{
         id:uid('DEL'), date:today(),
         orderRef:d.orderRef, driver:d.driver, truck:d.truck,
-        destination:d.destination,
+        destination,
+        exchangePoints: locationMode === 'exchange' ? selectedPoints : [],
         status:d.status||'Scheduled', items,
       }})
-      toast('success','Delivery added.'); reset(); setItems([]); onClose()
+      toast('success','Delivery added.'); reset({ locationType:'exchange' }); setItems([]); setSelectedPoints([]); onClose()
     } catch (error) {
       toast('error', error.message || 'Could not add delivery.')
     }
@@ -1040,7 +1057,7 @@ function DelivDrawer({ open, onClose, dispatch, toast }) {
         <Field label="Driver Name"><Input {...register('driver')} placeholder="Full name" /></Field>
         <Field label="Truck Plate"><Input {...register('truck')} placeholder="e.g. GW-421-24" /></Field>
       </div>
-      <LocationField register={register} watch={watch} epLocations={epLocations} />
+      <LocationField mode={locationMode} selectedPoints={selectedPoints} setSelectedPoints={setSelectedPoints} register={register} locationOptions={locationOptions} />
       <Field label="Status"><Select {...register('status')}><option>Scheduled</option><option>Loaded</option><option>En Route</option><option>Delivered</option><option>Failed</option></Select></Field>
       <DelivItemBuilder items={items} setItems={setItems} />
     </Drawer>

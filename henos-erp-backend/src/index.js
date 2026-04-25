@@ -26,6 +26,8 @@ import eaziGasRoutes      from './routes/eazigas.js'
 import holdingRoutes      from './routes/holding.js'
 import stationRoutes      from './routes/stations.js'
 import campaignRoutes     from './routes/campaigns.js'
+import b2bRoutes          from './routes/b2b.js'
+import hrRoutes           from './routes/hr.js'
 import esgRoutes          from './routes/esg.js'
 import notifRoutes        from './routes/notifications.js'
 
@@ -102,6 +104,8 @@ app.use('/api/eazigas',       eaziGasRoutes)
 app.use('/api/holding',       holdingRoutes)
 app.use('/api/stations',      stationRoutes)
 app.use('/api/campaigns',     campaignRoutes)
+app.use('/api/b2b',           b2bRoutes)
+app.use('/api/hr',            hrRoutes)
 app.use('/api/esg',           esgRoutes)
 app.use('/api/notifications', notifRoutes)
 

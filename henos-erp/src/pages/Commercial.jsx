@@ -1,559 +1,709 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useApp } from '../context/AppContext'
 import { useAuth } from '../auth/AuthContext'
 import { useToast } from '../hooks/useToast'
+import { exportRowsAsCsv } from '../utils/csv'
 import { uid, today, ts, money, statusVariant, REPS, REP_COLORS, owedBalance } from '../utils/helpers'
-import { PageHeader, Pills, Card, CardBody, Table, Badge, RepBadge, Button, Drawer, Field, Input, Select, NotifBell, EmptyState, ConfirmModal, Modal } from '../components/ui'
+import { PageHeader, Pills, Card, CardBody, Table, Badge, RepBadge, Button, Drawer, Field, Input, Select, NotifBell, ConfirmModal } from '../components/ui'
 
-const PRODUCTS = ['50KG Cylinder','14.5KG Cylinder','12.5KG Cylinder','6KG Cylinder','3KG Cylinder','Bulk LPG','Autogas']
-const CUST_TYPES = ['Commercial','Industrial','Agricultural','Fleet','Retail']
+const PRODUCTS = ['50KG Cylinder', '14.5KG Cylinder', '12.5KG Cylinder', '6KG Cylinder', '3KG Cylinder', 'Bulk LPG', 'Autogas']
+const CUST_TYPES = ['CRM DTD', 'B2B']
 
 export default function Commercial() {
   const { state, dispatch } = useApp()
+  const { session } = useAuth()
   const toast = useToast()
   const { db } = state
 
-  const [tab, setTab]               = useState('orders')
-  const [orderOpen, setOrderOpen]   = useState(false)
-  const [custOpen, setCustOpen]     = useState(false)
-  const [priceOpen, setPriceOpen]   = useState(false)
-  const [editCust, setEditCust]     = useState(null)
-  const [editOrder, setEditOrder]   = useState(null)
-  const [editPrice, setEditPrice]   = useState(null)
+  const [tab, setTab] = useState('orders')
+  const [orderOpen, setOrderOpen] = useState(false)
+  const [custOpen, setCustOpen] = useState(false)
+  const [priceOpen, setPriceOpen] = useState(false)
+  const [b2bOpen, setB2bOpen] = useState(false)
+  const [editOrder, setEditOrder] = useState(null)
+  const [editCust, setEditCust] = useState(null)
+  const [editPrice, setEditPrice] = useState(null)
+  const [customerTypeFilter, setCustomerTypeFilter] = useState('all')
+  const [b2bDateFilter, setB2bDateFilter] = useState('')
   const [delConfirm, setDelConfirm] = useState(null)
-  // New customer popup triggered from order form
-  const [newCustModal, setNewCustModal] = useState(null) // { pendingOrder, custName }
+  const [newCustModal, setNewCustModal] = useState(null)
 
-  const pend = db.orders.filter(o => o.status === 'Awaiting Ops Review').length
+  const todaysOrders = useMemo(() => db.orders.filter(order => (order.date || '') === today()), [db.orders])
+  const pendingToday = todaysOrders.filter(order => order.status === 'Awaiting Ops Review').length
+  const filteredCustomers = useMemo(() => (
+    db.customers.filter(customer => customerTypeFilter === 'all' || customer.type === customerTypeFilter)
+  ), [customerTypeFilter, db.customers])
+  const filteredB2b = useMemo(() => (
+    db.b2b.filter(entry => !b2bDateFilter || entry.date === b2bDateFilter)
+  ), [b2bDateFilter, db.b2b])
 
   const tabs = [
-    { id:'orders',    label:'Orders', badge: pend || null },
-    { id:'history',   label:'📋 Order History' },
-    { id:'customers', label:'Customers' },
-    { id:'pricing',   label:'Pricing' },
+    { id: 'orders', label: 'Orders', badge: pendingToday || null },
+    { id: 'history', label: 'Order History' },
+    { id: 'customers', label: 'Customers' },
+    { id: 'b2b', label: 'B2B' },
+    { id: 'pricing', label: 'Pricing' },
   ]
 
   async function doDelete() {
     try {
-      await dispatch({ type:'DB_DELETE', key:delConfirm.key, id:delConfirm.id })
-      toast('success','Deleted.')
+      await dispatch({ type: 'DB_DELETE', key: delConfirm.key, id: delConfirm.id })
+      toast('success', 'Deleted.')
       setDelConfirm(null)
     } catch (error) {
       toast('error', error.message || 'Could not delete record.')
     }
   }
 
-  // Called when order form detects unknown customer
-  function handleNewCust({ custName, pendingOrder }) {
-    setNewCustModal({ custName, pendingOrder })
+  function handleNewCust(payload) {
+    setNewCustModal(payload)
     setOrderOpen(false)
   }
 
-  // After new customer registered, place the order
-  async function finishOrder(pendingOrder) {
-    await dispatch({ type:'DB_INSERT', key:'orders', record: pendingOrder })
-    await dispatch({ type:'DB_INSERT', key:'cnotifs', record:{
-      id:uid('N'), type:'approved', read:false, time:ts(),
-      title:`Order ${pendingOrder.id} placed`,
-      message:`New order for ${pendingOrder.product} for ${pendingOrder.customer} submitted to Operations.`
-    }})
-    toast('success','Customer registered & order submitted to Operations.')
+  async function finishOrder(order) {
+    await dispatch({ type: 'DB_INSERT', key: 'orders', record: order })
+    await dispatch({
+      type: 'DB_INSERT',
+      key: 'cnotifs',
+      record: {
+        id: uid('N'),
+        type: 'approved',
+        read: false,
+        time: ts(),
+        title: `Order ${order.id} placed`,
+        message: `New order for ${order.product} for ${order.customer} submitted to Operations.`,
+      },
+    })
+    toast('success', 'Customer registered and order submitted.')
     setNewCustModal(null)
   }
 
-  const { session } = useAuth()
-
   return (
-    <div style={{animation:'fadein .3s cubic-bezier(.4,0,.2,1)'}}>
-      <PageHeader title="Commercial" actions={<>
-        <NotifBell notifKey="cnotifs" />
-        {tab==='orders'    && <Button onClick={()=>setOrderOpen(true)}>+ New Order</Button>}
-        {tab==='customers' && <Button onClick={()=>setCustOpen(true)}>+ Add Customer</Button>}
-        {tab==='pricing'   && <Button onClick={()=>setPriceOpen(true)}>+ Set Price</Button>}
-      </>} />
+    <div style={{ animation: 'fadein .3s cubic-bezier(.4,0,.2,1)' }}>
+      <PageHeader
+        title="Commercial"
+        actions={<>
+          <NotifBell notifKey="cnotifs" />
+          {tab === 'orders' && <Button onClick={() => setOrderOpen(true)}>+ New Order</Button>}
+          {tab === 'customers' && <Button onClick={() => setCustOpen(true)}>+ Add Customer</Button>}
+          {tab === 'b2b' && <Button onClick={() => setB2bOpen(true)}>+ Add B2B Entry</Button>}
+          {tab === 'pricing' && <Button onClick={() => setPriceOpen(true)}>+ Set Price</Button>}
+        </>}
+      />
 
-      <div className="ibar ib"><span>ℹ️</span><span>Orders go to <strong>Operations</strong> for credit check before processing.</span></div>
+      <div className="ibar ib">
+        <span>Orders go to <strong>Operations</strong> for credit check before processing. The active order board resets each day, while Order History keeps all previous records.</span>
+      </div>
 
       <Pills tabs={tabs} active={tab} onChange={setTab} />
 
-      {tab==='orders' && (
-        <Card><CardBody noPad>
-          <Table
-            columns={['Order ID','Customer','Product','Qty','Total','Placed By','Date','Status','']}
-            rows={db.orders.map(o => [
-              <span style={{fontSize:11,color:'var(--a)',fontFamily:'monospace'}}>{o.id}</span>,
-              o.customer||'—', o.product||'—', o.qty||'—',
-              o.qty&&o.unitPrice ? money(o.qty*o.unitPrice) : '—',
-              <RepBadge name={o.placedBy} colors={REP_COLORS} />,
-              o.date||'—',
-              <Badge variant={statusVariant(o.status)}>{o.status}</Badge>,
-              <div style={{display:'flex',gap:4}}>
-                <Button variant="secondary" size="sm" onClick={()=>setEditOrder(o)}>✏️</Button>
-                <Button variant="ghost" size="sm" onClick={()=>setDelConfirm({key:'orders',id:o.id})}>Del</Button>
-              </div>,
-            ])}
-          />
-        </CardBody></Card>
-      )}
-
-      {tab==='history' && (
+      {tab === 'orders' && (
         <Card>
-          <div className="phd" style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
-            <span className="ptl2">📋 All Orders — Live Status from Operations</span>
-            <Button variant="secondary" size="sm" onClick={()=>printOrderHistory(db.orders)}>🖨 Print All</Button>
+          <div className="phd" style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+            <span className="ptl2">Today&apos;s Orders</span>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => exportRowsAsCsv(
+                'commercial-orders-today',
+                ['Order ID', 'Customer', 'Product', 'Qty', 'Total', 'Placed By', 'Date', 'Status'],
+                todaysOrders.map(order => [order.id, order.customer || '', order.product || '', order.qty || '', order.qty && order.unitPrice ? order.qty * order.unitPrice : '', order.placedBy || '', order.date || '', order.status || '']),
+              )}
+            >
+              Export CSV
+            </Button>
           </div>
           <CardBody noPad>
             <Table
-              columns={['Order ID','Customer','Product','Qty','Total','Placed By','Date','Status','']}
-              rows={db.orders.slice().reverse().map(o => [
-                <span style={{fontSize:11,color:'var(--a)',fontFamily:'monospace'}}>{o.id}</span>,
-                o.customer||'—', o.product||'—', o.qty||'—',
-                o.qty&&o.unitPrice ? money(o.qty*o.unitPrice) : '—',
-                <RepBadge name={o.placedBy} colors={REP_COLORS} />,
-                o.deliveredAt || o.approvedAt || o.cancelledAt || o.date || '—',
-                <Badge variant={statusVariant(o.status)}>{o.status}</Badge>,
-                <Button variant="ghost" size="sm" onClick={()=>printSingleOrder(o)}>🖨</Button>,
+              columns={['Order ID', 'Customer', 'Product', 'Qty', 'Total', 'Placed By', 'Date', 'Status', '']}
+              rows={todaysOrders.map(order => [
+                <span style={{ fontSize: 11, color: 'var(--a)', fontFamily: 'monospace' }}>{order.id}</span>,
+                order.customer || '-',
+                order.product || '-',
+                order.qty || '-',
+                order.qty && order.unitPrice ? money(order.qty * order.unitPrice) : '-',
+                <RepBadge name={order.placedBy} colors={REP_COLORS} />,
+                order.date || '-',
+                <Badge variant={statusVariant(order.status)}>{order.status}</Badge>,
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <Button variant="secondary" size="sm" onClick={() => setEditOrder(order)}>Edit</Button>
+                  <Button variant="ghost" size="sm" onClick={() => setDelConfirm({ key: 'orders', id: order.id })}>Del</Button>
+                </div>,
               ])}
-              empty="No orders placed yet. Go to Orders tab to place your first order."
+              empty="No orders recorded for today yet"
             />
           </CardBody>
         </Card>
       )}
 
-      {tab==='customers' && (
-        <Card><CardBody noPad>
-          <Table
-            columns={['ID','Name','Type','Region','Contact','GPS','Acct Mgr','Status','']}
-            rows={db.customers.map(c => [
-              <span style={{fontSize:11,color:'var(--m)',fontFamily:'monospace'}}>{c.id}</span>,
-              c.name||'—', c.type||'—', c.region||'—', c.contact||'—',
-              c.gps ? <span style={{fontSize:11,color:'var(--a)'}}>📍{c.gps}</span> : '—',
-              <RepBadge name={c.rep} colors={REP_COLORS} />,
-              <Badge variant={c.status==='Active'?'success':'neutral'}>{c.status||'Active'}</Badge>,
-              <div style={{display:'flex',gap:4}}>
-                <Button variant="secondary" size="sm" onClick={()=>setEditCust(c)}>✏️</Button>
-                <Button variant="ghost" size="sm" onClick={()=>setDelConfirm({key:'customers',id:c.id})}>Del</Button>
-              </div>,
-            ])}
-          />
-        </CardBody></Card>
+      {tab === 'history' && (
+        <Card>
+          <div className="phd" style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+            <span className="ptl2">All Orders</span>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => exportRowsAsCsv(
+                  'commercial-order-history',
+                  ['Order ID', 'Customer', 'Product', 'Qty', 'Total', 'Placed By', 'Date', 'Status'],
+                  db.orders.map(order => [order.id, order.customer || '', order.product || '', order.qty || '', order.qty && order.unitPrice ? order.qty * order.unitPrice : '', order.placedBy || '', order.deliveredAt || order.approvedAt || order.cancelledAt || order.date || '', order.status || '']),
+                )}
+              >
+                Export CSV
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => printOrderHistory(db.orders)}>Print</Button>
+            </div>
+          </div>
+          <CardBody noPad>
+            <Table
+              columns={['Order ID', 'Customer', 'Product', 'Qty', 'Total', 'Placed By', 'Date', 'Status', '']}
+              rows={db.orders.map(order => [
+                <span style={{ fontSize: 11, color: 'var(--a)', fontFamily: 'monospace' }}>{order.id}</span>,
+                order.customer || '-',
+                order.product || '-',
+                order.qty || '-',
+                order.qty && order.unitPrice ? money(order.qty * order.unitPrice) : '-',
+                <RepBadge name={order.placedBy} colors={REP_COLORS} />,
+                order.deliveredAt || order.approvedAt || order.cancelledAt || order.date || '-',
+                <Badge variant={statusVariant(order.status)}>{order.status}</Badge>,
+                <Button variant="secondary" size="sm" onClick={() => printSingleOrder(order)}>Print</Button>,
+              ])}
+              empty="No order history yet"
+            />
+          </CardBody>
+        </Card>
       )}
 
-      {tab==='pricing' && (
-        <Card><CardBody noPad>
-          <Table
-            columns={['ID','Product','Category','Unit','Price (GH₵)','Updated','']}
-            rows={db.prices.map(p => [
-              <span style={{fontSize:11,color:'var(--m)',fontFamily:'monospace'}}>{p.id}</span>,
-              p.product||'—', p.category||'—', p.unit||'—',
-              p.price ? Number(p.price).toLocaleString() : '—',
-              p.updatedAt||'—',
-              <div style={{display:'flex',gap:4}}>
-                <Button variant="secondary" size="sm" onClick={()=>setEditPrice(p)}>✏️</Button>
-                <Button variant="ghost" size="sm" onClick={()=>setDelConfirm({key:'prices',id:p.id})}>Del</Button>
-              </div>,
-            ])}
-          />
-        </CardBody></Card>
+      {tab === 'customers' && (
+        <Card>
+          <div className="phd" style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+              <button className={`pill${customerTypeFilter === 'all' ? ' on' : ''}`} onClick={() => setCustomerTypeFilter('all')}>All</button>
+              <button className={`pill${customerTypeFilter === 'CRM DTD' ? ' on' : ''}`} onClick={() => setCustomerTypeFilter('CRM DTD')}>CRM DTD</button>
+              <button className={`pill${customerTypeFilter === 'B2B' ? ' on' : ''}`} onClick={() => setCustomerTypeFilter('B2B')}>B2B</button>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => exportRowsAsCsv(
+                'commercial-customers',
+                ['ID', 'Name', 'Type', 'Region', 'Contact', 'GPS', 'Account Manager', 'Status'],
+                filteredCustomers.map(customer => [customer.id, customer.name || '', customer.type || '', customer.region || '', customer.contact || '', customer.gps || '', customer.rep || '', customer.status || '']),
+              )}
+            >
+              Export CSV
+            </Button>
+          </div>
+          <CardBody noPad>
+            <Table
+              columns={['ID', 'Name', 'Type', 'Region', 'Contact', 'GPS', 'Acct Mgr', 'Status', '']}
+              rows={filteredCustomers.map(customer => [
+                <span style={{ fontSize: 11, color: 'var(--m)', fontFamily: 'monospace' }}>{customer.id}</span>,
+                customer.name || '-',
+                customer.type || '-',
+                customer.region || '-',
+                customer.contact || '-',
+                customer.gps || '-',
+                <RepBadge name={customer.rep} colors={REP_COLORS} />,
+                <Badge variant={customer.status === 'Active' ? 'success' : 'neutral'}>{customer.status || 'Active'}</Badge>,
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <Button variant="secondary" size="sm" onClick={() => setEditCust(customer)}>Edit</Button>
+                  <Button variant="ghost" size="sm" onClick={() => setDelConfirm({ key: 'customers', id: customer.id })}>Del</Button>
+                </div>,
+              ])}
+              empty="No customers yet"
+            />
+          </CardBody>
+        </Card>
       )}
 
-      {/* Drawers & Modals */}
-      <OrderDrawer open={orderOpen} onClose={()=>setOrderOpen(false)} db={db} dispatch={dispatch} toast={toast} onNewCust={handleNewCust} session={session} />
-      {editOrder && <EditOrderDrawer order={editOrder} onClose={()=>setEditOrder(null)} dispatch={dispatch} toast={toast} />}
-      <CustomerDrawer open={custOpen} onClose={()=>setCustOpen(false)} dispatch={dispatch} toast={toast} />
-      {editCust && <EditCustomerDrawer cust={editCust} onClose={()=>setEditCust(null)} dispatch={dispatch} toast={toast} />}
-      <PriceDrawer open={priceOpen} onClose={()=>setPriceOpen(false)} dispatch={dispatch} toast={toast} />
-      {editPrice && <EditPriceDrawer price={editPrice} onClose={()=>setEditPrice(null)} dispatch={dispatch} toast={toast} />}
+      {tab === 'b2b' && (
+        <Card>
+          <div className="phd" style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span className="ptl2">B2B Register</span>
+              <input value={b2bDateFilter} onChange={event => setB2bDateFilter(event.target.value)} type="date" style={{ minWidth: 180, border: '1.5px solid var(--b)', borderRadius: 7, padding: '7px 10px', fontSize: 13, outline: 'none' }} />
+              {b2bDateFilter && <Button variant="ghost" size="sm" onClick={() => setB2bDateFilter('')}>Reset</Button>}
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => exportRowsAsCsv(
+                'commercial-b2b',
+                ['Date', 'Customer', 'Volume', 'BDC', 'Depot', 'Order Number', 'Vehicle Number', 'Price', 'Volume in Transit'],
+                filteredB2b.map(entry => [entry.date || '', entry.customerName || '', entry.volume || '', entry.bdc || '', entry.depot || '', entry.orderNumber || '', entry.vehicleNumber || '', entry.price || '', entry.volumeInTransit || '']),
+              )}
+            >
+              Export CSV
+            </Button>
+          </div>
+          <CardBody noPad>
+            <Table
+              columns={['Date', 'Customer', 'Volume', 'BDC', 'Depot', 'Order Number', 'Vehicle Number', 'Price', 'Transit', '']}
+              rows={filteredB2b.map(entry => [
+                entry.date || '-',
+                entry.customerName || '-',
+                entry.volume || '-',
+                entry.bdc || '-',
+                entry.depot || '-',
+                entry.orderNumber || '-',
+                entry.vehicleNumber || '-',
+                entry.price ? money(entry.price) : '-',
+                entry.volumeInTransit || '-',
+                <Button variant="ghost" size="sm" onClick={() => setDelConfirm({ key: 'b2b', id: entry.id })}>Del</Button>,
+              ])}
+              empty="No B2B entries yet"
+            />
+          </CardBody>
+        </Card>
+      )}
 
-      {/* New Customer Popup (triggered mid-order) */}
+      {tab === 'pricing' && (
+        <Card>
+          <div className="phd" style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+            <span className="ptl2">Price List</span>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => exportRowsAsCsv(
+                'commercial-pricing',
+                ['ID', 'Product', 'Category', 'Unit', 'Price', 'Updated'],
+                db.prices.map(price => [price.id, price.product || '', price.category || '', price.unit || '', price.price || '', price.updatedAt || '']),
+              )}
+            >
+              Export CSV
+            </Button>
+          </div>
+          <CardBody noPad>
+            <Table
+              columns={['ID', 'Product', 'Category', 'Unit', 'Price (GHs)', 'Updated', '']}
+              rows={db.prices.map(price => [
+                <span style={{ fontSize: 11, color: 'var(--m)', fontFamily: 'monospace' }}>{price.id}</span>,
+                price.product || '-',
+                price.category || '-',
+                price.unit || '-',
+                price.price ? Number(price.price).toLocaleString() : '-',
+                price.updatedAt || '-',
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <Button variant="secondary" size="sm" onClick={() => setEditPrice(price)}>Edit</Button>
+                  <Button variant="ghost" size="sm" onClick={() => setDelConfirm({ key: 'prices', id: price.id })}>Del</Button>
+                </div>,
+              ])}
+              empty="No pricing records yet"
+            />
+          </CardBody>
+        </Card>
+      )}
+
+      <OrderDrawer open={orderOpen} onClose={() => setOrderOpen(false)} db={db} dispatch={dispatch} toast={toast} onNewCust={handleNewCust} session={session} />
+      {editOrder && <EditOrderDrawer order={editOrder} onClose={() => setEditOrder(null)} dispatch={dispatch} toast={toast} />}
+      <CustomerDrawer open={custOpen} onClose={() => setCustOpen(false)} dispatch={dispatch} toast={toast} />
+      {editCust && <EditCustomerDrawer cust={editCust} onClose={() => setEditCust(null)} dispatch={dispatch} toast={toast} />}
+      <B2BDrawer open={b2bOpen} onClose={() => setB2bOpen(false)} dispatch={dispatch} toast={toast} customers={db.customers} />
+      <PriceDrawer open={priceOpen} onClose={() => setPriceOpen(false)} dispatch={dispatch} toast={toast} />
+      {editPrice && <EditPriceDrawer price={editPrice} onClose={() => setEditPrice(null)} dispatch={dispatch} toast={toast} />}
+
       {newCustModal && (
         <NewCustomerModal
           custName={newCustModal.custName}
-          pendingOrder={newCustModal.pendingOrder}
-          onCancel={()=>{ setNewCustModal(null); setOrderOpen(true) }}
-          onSave={async (custData)=>{
+          onCancel={() => { setNewCustModal(null); setOrderOpen(true) }}
+          onSave={async customerRecord => {
             try {
-              const createdCustomer = await dispatch({ type:'DB_INSERT', key:'customers', record: custData })
+              const createdCustomer = await dispatch({ type: 'DB_INSERT', key: 'customers', record: customerRecord })
               await finishOrder({
                 ...newCustModal.pendingOrder,
                 customerId: createdCustomer.id,
                 customer: createdCustomer.name,
               })
             } catch (error) {
-              toast('error', error.message || 'Could not register customer and place order.')
+              toast('error', error.message || 'Could not register customer.')
             }
           }}
-          dispatch={dispatch}
         />
       )}
 
-      <ConfirmModal open={!!delConfirm} onClose={()=>setDelConfirm(null)} onConfirm={doDelete} title="Confirm Delete" message="This record will be permanently deleted." />
+      <ConfirmModal open={!!delConfirm} onClose={() => setDelConfirm(null)} onConfirm={doDelete} title="Confirm Delete" message="This record will be permanently deleted." />
     </div>
   )
 }
 
-// ── Order Drawer ─────────────────────────────────────────────
 function OrderDrawer({ open, onClose, db, dispatch, toast, onNewCust, session }) {
-  const autoRep = session?.role==='sales_rep' ? session?.name : (session?.name||'')
-  const { register, handleSubmit, watch, reset, formState:{errors} } = useForm({ defaultValues:{ placedBy: autoRep } })
-  const prVal = watch('product')
-  const custVal = watch('customer','')
-
-  // Live owed balance check
-  const custUp = (custVal||'').trim().toUpperCase()
-  const custExists = !!db.customers.find(c=>c.name.trim().toUpperCase()===custUp)
-  const owed = custUp ? owedBalance(custUp, db.invoices) : 0
+  const autoRep = session?.role === 'sales_rep' ? session?.name : session?.name || ''
+  const { register, handleSubmit, watch, reset, formState: { errors } } = useForm({ defaultValues: { placedBy: autoRep, deliveryDate: today() } })
+  const productValue = watch('product')
+  const customerValue = watch('customer', '')
+  const customerName = (customerValue || '').trim().toUpperCase()
+  const customerExists = db.customers.some(customer => customer.name?.trim().toUpperCase() === customerName)
+  const owed = customerName ? owedBalance(customerName, db.invoices) : 0
 
   async function onSubmit(data) {
-    const customer = data.customer.trim().toUpperCase()
-    const product  = data.product==='custom' ? (data.customProduct||'').toUpperCase() : data.product
-    if (!customer || !product) { toast('error','Customer and product required.'); return }
+    const customer = (data.customer || '').trim().toUpperCase()
+    const product = data.product === 'custom' ? (data.customProduct || '').trim().toUpperCase() : data.product
+    if (!customer || !product) {
+      toast('error', 'Customer and product are required.')
+      return
+    }
 
     const order = {
-      id: uid('SO'), status:'Awaiting Ops Review', date:today(),
-      customer, product,
+      id: uid('SO'),
+      status: 'Awaiting Ops Review',
+      date: today(),
+      customer,
+      product,
       qty: data.qty ? Number(data.qty) : null,
       unitPrice: data.unitPrice ? Number(data.unitPrice) : null,
       placedBy: data.placedBy || null,
+      deliveryDate: data.deliveryDate || null,
       notes: data.notes || null,
     }
 
-    const exists = db.customers.find(c=>c.name.trim().toUpperCase()===customer)
-    if (!exists) {
-      // Trigger new customer popup
+    const existing = db.customers.find(item => item.name?.trim().toUpperCase() === customer)
+    if (!existing) {
       onNewCust({ custName: customer, pendingOrder: order })
-      reset()
+      reset({ placedBy: autoRep, deliveryDate: today() })
       return
     }
 
     try {
-      await dispatch({ type:'DB_INSERT', key:'orders', record: order })
-      await dispatch({ type:'DB_INSERT', key:'cnotifs', record:{
-        id:uid('N'), type:'approved', read:false, time:ts(),
-        title:`Order ${order.id} placed`,
-        message:`New order for ${product} for ${customer} submitted to Operations.`
-      }})
-      toast('success','Order submitted to Operations.')
-      reset(); onClose()
+      await dispatch({ type: 'DB_INSERT', key: 'orders', record: { ...order, customerId: existing.id } })
+      await dispatch({
+        type: 'DB_INSERT',
+        key: 'cnotifs',
+        record: {
+          id: uid('N'),
+          type: 'approved',
+          read: false,
+          time: ts(),
+          title: `Order ${order.id} placed`,
+          message: `New order for ${product} for ${customer} submitted to Operations.`,
+        },
+      })
+      toast('success', 'Order submitted to Operations.')
+      reset({ placedBy: autoRep, deliveryDate: today() })
+      onClose()
     } catch (error) {
       toast('error', error.message || 'Could not submit order.')
     }
   }
 
   return (
-    <Drawer open={open} onClose={onClose} title="Place New Order"
-      footer={<>
-        <Button className="btnfw" onClick={handleSubmit(onSubmit)}>Submit to Operations →</Button>
-        <Button variant="ghost" className="btnfw" onClick={onClose}>Cancel</Button>
-      </>}
-    >
-      <div className="ibar iw"><span>⚠️</span><span>Goes to Operations for credit check before processing.</span></div>
-
-      <Field label="Placed By" hint={session?.role==='sales_rep'?'Auto-filled from your profile':undefined}>
-        {session?.role==='sales_rep'
-          ? <input value={session?.name||''} disabled style={{border:'1.5px solid var(--b)',borderRadius:7,padding:'9px 11px',fontSize:13,background:'var(--bg)',color:'var(--m)',width:'100%',fontFamily:'inherit'}}/>
-          : <Select {...register('placedBy')}><option value="">Select rep…</option>{REPS.map(r=><option key={r}>{r}</option>)}</Select>
-        }
+    <Drawer open={open} onClose={onClose} title="Place New Order" footer={<><Button className="btnfw" onClick={handleSubmit(onSubmit)}>Submit to Operations</Button><Button variant="ghost" className="btnfw" onClick={onClose}>Cancel</Button></>}>
+      <Field label="Placed By">
+        {session?.role === 'sales_rep'
+          ? <Input value={session?.name || ''} disabled />
+          : <Select {...register('placedBy')}><option value="">Select rep...</option>{REPS.map(rep => <option key={rep}>{rep}</option>)}</Select>}
       </Field>
-
-      <Field label="Customer Name" error={errors.customer?.message}
-        hint={custUp && !custExists ? '⚠️ Customer not found — will prompt to register' : custUp && custExists ? '✓ Customer found' : ''}>
-        <Input {...register('customer',{required:'Customer name is required'})} placeholder="e.g. METRO FAST FOOD" />
+      <Field label="Customer Name" error={errors.customer?.message} hint={customerName ? customerExists ? 'Customer found in register.' : 'Customer not found yet. You will be prompted to register them.' : undefined}>
+        <Input {...register('customer', { required: 'Customer name is required.' })} placeholder="e.g. METRO FAST FOOD" />
       </Field>
-
-      {/* Outstanding balance warning */}
-      {custUp && custExists && owed > 0 && (
+      {customerName && customerExists && owed > 0 && (
         <div className="ibar ir">
-          <span>🔴</span>
-          <span><strong>{custUp}</strong> has an outstanding balance of <strong>{money(owed)}</strong>. Operations will see this during review.</span>
+          <span><strong>{customerName}</strong> currently owes <strong>{money(owed)}</strong>. Operations will see this in review.</span>
         </div>
       )}
-
       <Field label="Product / Cylinder Size">
-        <Select {...register('product')}><option value="">Select product…</option>
-          {PRODUCTS.map(p=><option key={p}>{p}</option>)}
-          <option value="custom">Other (specify below)</option>
-        </Select>
+        <Select {...register('product')}><option value="">Select product...</option>{PRODUCTS.map(product => <option key={product}>{product}</option>)}<option value="custom">Other</option></Select>
       </Field>
-      {prVal==='custom' && <Field label="Specify Product"><Input {...register('customProduct')} placeholder="Type product name…" /></Field>}
-      {prVal==='Bulk LPG' && <Field label="Bulk Weight (KG)"><Input {...register('bulkKg')} type="number" placeholder="e.g. 5000" /></Field>}
-
+      {productValue === 'custom' && <Field label="Specify Product"><Input {...register('customProduct')} placeholder="Type product name" /></Field>}
       <div className="frow">
-        <Field label="Quantity"><Input {...register('qty')} type="number" placeholder="e.g. 10" /></Field>
-        <Field label="Unit Price (GH₵)"><Input {...register('unitPrice')} type="number" placeholder="0.00" /></Field>
+        <Field label="Quantity"><Input {...register('qty')} type="number" placeholder="0" /></Field>
+        <Field label="Unit Price (GHs)"><Input {...register('unitPrice')} type="number" placeholder="0.00" /></Field>
       </div>
       <Field label="Delivery Date"><Input {...register('deliveryDate')} type="date" /></Field>
-      <Field label="Notes / Special Instructions"><Input {...register('notes')} placeholder="Any special instructions…" /></Field>
+      <Field label="Notes / Special Instructions"><Input {...register('notes')} placeholder="Any delivery note or site instruction" /></Field>
     </Drawer>
   )
 }
 
-// ── New Customer Popup (mid-order) ────────────────────────────
-function NewCustomerModal({ custName, pendingOrder, onCancel, onSave }) {
-  const { register, handleSubmit, formState:{errors} } = useForm({
-    defaultValues:{ name: custName }
-  })
-  function onSubmit(data) {
-    const cust = {
-      id: uid('C'), status:'Active',
-      name: data.name.trim().toUpperCase(),
-      type: data.type, region: data.region,
-      contact: data.contact, gps: data.gps, rep: data.rep,
-    }
-    onSave(cust)
-  }
-  return (
-    <div className="mov on" onClick={e=>{ if(e.target===e.currentTarget) onCancel() }}>
-      <div className="mdl" style={{width:'min(480px,96vw)'}}>
-        {/* Header */}
-        <div style={{background:'linear-gradient(135deg,#1a56db,#1e40af)',padding:'16px 18px'}}>
-          <div style={{fontWeight:700,fontSize:15,color:'#fff'}}>👤 New Customer — Required</div>
-          <div style={{fontSize:12,color:'rgba(255,255,255,.8)',marginTop:4}}>
-            "<strong>{custName}</strong>" isn't in your customer list. Please register them to place this order.
-          </div>
-        </div>
-        <div style={{background:'var(--as)',borderBottom:'1.5px solid var(--b)',padding:'9px 18px',fontSize:11,color:'var(--a)',display:'flex',gap:6,alignItems:'center'}}>
-          <span>ℹ️</span><span>All fields below are <strong>compulsory</strong>. Complete registration to submit the order.</span>
-        </div>
-        <div style={{padding:'18px',display:'flex',flexDirection:'column',gap:12,maxHeight:'60vh',overflowY:'auto'}}>
-          <Field label="Company / Name" required error={errors.name?.message}>
-            <Input {...register('name',{required:'Required'})} style={{fontWeight:700}} />
-          </Field>
-          <div className="frow">
-            <Field label="Customer Type" required error={errors.type?.message}>
-              <Select {...register('type',{required:'Required'})}>
-                <option value="">Select type…</option>
-                {CUST_TYPES.map(v=><option key={v}>{v}</option>)}
-              </Select>
-            </Field>
-            <Field label="Region" required error={errors.region?.message}>
-              <Input {...register('region',{required:'Required'})} placeholder="e.g. Accra North" />
-            </Field>
-          </div>
-          <Field label="Contact Person & Phone" required error={errors.contact?.message}>
-            <Input {...register('contact',{required:'Required'})} placeholder="Full name · phone number" />
-          </Field>
-          <Field label="GPS / Digital Address" required error={errors.gps?.message} hint="📍 Ghana Post GPS address or coordinates">
-            <Input {...register('gps',{required:'Required'})} placeholder="e.g. GS-0382-3921" />
-          </Field>
-          <Field label="Account Manager" required error={errors.rep?.message}>
-            <Select {...register('rep',{required:'Required'})}>
-              <option value="">Select account manager…</option>
-              {REPS.map(r=><option key={r}>{r}</option>)}
-            </Select>
-          </Field>
-        </div>
-        <div style={{padding:'12px 18px',borderTop:'1.5px solid var(--b)',display:'flex',flexDirection:'column',gap:8}}>
-          <Button className="btnfw" onClick={handleSubmit(onSubmit)}>✓ Register Customer & Submit Order</Button>
-          <Button variant="ghost" className="btnfw" onClick={onCancel}>✕ Cancel — Go Back to Order Form</Button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-
-// ── Print helpers ─────────────────────────────────────────────
-function printOrderHistory(orders) {
-  const LOGO_URL = 'https://i0.wp.com/henosenergy.com/wp/wp-content/uploads/2023/10/Henos-Logo-White1.png?fit=1000%2C416&ssl=1'
-  const rows = orders.map((o,i) => {
-    const total = o.qty && o.unitPrice ? `GH₵${(o.qty*o.unitPrice).toLocaleString()}` : '—'
-    const statusColor = {Delivered:'#16a34a',Cancelled:'#dc2626','Awaiting Ops Review':'#d97706',Processing:'#1a56db','In Transit':'#1a56db'}[o.status]||'#6b7280'
-    return `<tr style="background:${i%2===0?'#fff':'#f9fafb'}">
-      <td style="padding:8px 12px;font-size:11px;color:#1a56db;font-family:monospace">${o.id}</td>
-      <td style="padding:8px 12px;font-weight:600">${o.customer||'—'}</td>
-      <td style="padding:8px 12px">${o.product||'—'}</td>
-      <td style="padding:8px 12px;text-align:center">${o.qty||'—'}</td>
-      <td style="padding:8px 12px;text-align:right;font-weight:700">${total}</td>
-      <td style="padding:8px 12px">${o.placedBy||'—'}</td>
-      <td style="padding:8px 12px">${o.deliveredAt||o.approvedAt||o.cancelledAt||o.date||'—'}</td>
-      <td style="padding:8px 12px"><span style="background:${statusColor}22;color:${statusColor};font-size:11px;font-weight:700;border-radius:3px;padding:2px 7px">${o.status}</span></td>
-    </tr>`
-  }).join('')
-  const win = window.open('','_blank','width=900,height=700')
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>Order History</title>
-  <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;padding:28px 32px;color:#0f172a;font-size:12px}
-  .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;padding-bottom:14px;border-bottom:3px solid #1e3a5f}
-  table{width:100%;border-collapse:collapse}thead{background:#1e3a5f;color:#fff}th{padding:9px 12px;font-size:10px;text-transform:uppercase;letter-spacing:.5px;text-align:left}
-  @media print{button{display:none}}</style></head><body>
-  <div class="header">
-    <div><div style="background:#1e3a5f;border-radius:10px;padding:5px 14px;display:inline-flex;align-items:center;margin-bottom:8px"><img src="${LOGO_URL}" style="height:38px"/></div>
-    <div style="font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:.6px">Energizing Progress · Ghana</div></div>
-    <div style="text-align:right"><div style="font-size:18px;font-weight:900;color:#1e3a5f">Order History</div>
-    <div style="font-size:11px;color:#64748b;margin-top:4px">Printed: ${new Date().toLocaleDateString('en-GH',{day:'2-digit',month:'short',year:'numeric'})}</div>
-    <div style="font-size:11px;color:#64748b">Total Orders: ${orders.length}</div></div>
-  </div>
-  <table><thead><tr><th>Order ID</th><th>Customer</th><th>Product</th><th style="text-align:center">Qty</th><th style="text-align:right">Total</th><th>Placed By</th><th>Date</th><th>Status</th></tr></thead>
-  <tbody>${rows}</tbody></table>
-  <div style="margin-top:24px;text-align:center"><button onclick="window.print()" style="background:#1e3a5f;color:#fff;border:none;border-radius:8px;padding:10px 28px;font-size:14px;font-weight:700;cursor:pointer">🖨️ Print</button></div>
-  </body></html>`)
-  win.document.close()
-}
-
-function printSingleOrder(o) {
-  const LOGO_URL = 'https://i0.wp.com/henosenergy.com/wp/wp-content/uploads/2023/10/Henos-Logo-White1.png?fit=1000%2C416&ssl=1'
-  const total = o.qty && o.unitPrice ? o.qty * o.unitPrice : 0
-  const statusColor = {Delivered:'#16a34a',Cancelled:'#dc2626','Awaiting Ops Review':'#d97706',Processing:'#1a56db','In Transit':'#1a56db'}[o.status]||'#6b7280'
-  const win = window.open('','_blank','width=600,height=500')
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>Order ${o.id}</title>
-  <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;padding:28px 32px;color:#0f172a;font-size:13px}
-  .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;padding-bottom:14px;border-bottom:3px solid #1e3a5f}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px}
-  .box{background:#f8faff;border-radius:8px;padding:14px 16px}.lbl{font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}.val{font-size:14px;font-weight:700}
-  @media print{button{display:none}}</style></head><body>
-  <div class="header">
-    <div><div style="background:#1e3a5f;border-radius:10px;padding:5px 14px;display:inline-flex;align-items:center;margin-bottom:8px"><img src="${LOGO_URL}" style="height:38px"/></div>
-    <div style="font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:.6px">Energizing Progress · Ghana</div></div>
-    <div style="text-align:right"><div style="font-size:18px;font-weight:900;color:#1e3a5f">Order Confirmation</div>
-    <div style="font-size:12px;font-family:monospace;color:#1a56db;margin-top:4px">${o.id}</div>
-    <div style="margin-top:6px"><span style="background:${statusColor}22;color:${statusColor};font-size:12px;font-weight:700;border-radius:4px;padding:3px 10px">${o.status}</span></div></div>
-  </div>
-  <div class="grid">
-    ${[['Customer',o.customer||'—'],['Product',o.product||'—'],['Quantity',o.qty||'—'],['Unit Price',o.unitPrice?`GH₵${Number(o.unitPrice).toLocaleString()}`:'—'],['Order Total',total?`GH₵${total.toLocaleString()}`:'—'],['Placed By',o.placedBy||'—'],['Date Placed',o.date||'—'],['Status',o.status]].map(([l,v])=>`<div class="box"><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join('')}
-  </div>
-  ${o.notes?`<div style="margin-top:16px;background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:8px;padding:12px 14px"><div style="font-size:10px;color:#1a56db;text-transform:uppercase;font-weight:700;margin-bottom:4px">Notes</div><div style="font-size:13px">${o.notes}</div></div>`:''}
-  <div style="margin-top:28px;text-align:center"><button onclick="window.print()" style="background:#1e3a5f;color:#fff;border:none;border-radius:8px;padding:10px 28px;font-size:14px;font-weight:700;cursor:pointer">🖨️ Print</button></div>
-  </body></html>`)
-  win.document.close()
-}
-// ── Edit Order Drawer ─────────────────────────────────────────
 function EditOrderDrawer({ order, onClose, dispatch, toast }) {
-  const { register, handleSubmit, watch } = useForm({ defaultValues:{ ...order, product: PRODUCTS.includes(order.product)?order.product:'custom', customProduct: PRODUCTS.includes(order.product)?'':order.product } })
-  const prVal = watch('product')
+  const { register, handleSubmit, watch } = useForm({ defaultValues: { ...order, product: PRODUCTS.includes(order.product) ? order.product : 'custom', customProduct: PRODUCTS.includes(order.product) ? '' : order.product } })
+  const productValue = watch('product')
+
   async function onSubmit(data) {
-    const product = data.product==='custom'?(data.customProduct||'').toUpperCase():data.product
     try {
-      await dispatch({ type:'DB_UPDATE', key:'orders', id:order.id, patch:{
-        product, qty:data.qty?Number(data.qty):null,
-        unitPrice:data.unitPrice?Number(data.unitPrice):null,
-        placedBy:data.placedBy||null, notes:data.notes||null,
-      }})
-      toast('success','Order updated.'); onClose()
+      await dispatch({
+        type: 'DB_UPDATE',
+        key: 'orders',
+        id: order.id,
+        patch: {
+          product: data.product === 'custom' ? (data.customProduct || '').trim().toUpperCase() : data.product,
+          qty: data.qty ? Number(data.qty) : null,
+          unitPrice: data.unitPrice ? Number(data.unitPrice) : null,
+          placedBy: data.placedBy || null,
+          deliveryDate: data.deliveryDate || null,
+          notes: data.notes || null,
+        },
+      })
+      toast('success', 'Order updated.')
+      onClose()
     } catch (error) {
       toast('error', error.message || 'Could not update order.')
     }
   }
+
   return (
-    <Drawer open={true} onClose={onClose} title={`Edit Order — ${order.id}`}
-      footer={<><Button className="btnfw" onClick={handleSubmit(onSubmit)}>Save Changes</Button><Button variant="ghost" className="btnfw" onClick={onClose}>Cancel</Button></>}>
-      <Field label="Customer"><Input value={order.customer} disabled style={{background:'var(--bg)',color:'var(--m)'}}/></Field>
-      <Field label="Placed By"><Select {...register('placedBy')}><option value="">Select rep…</option>{REPS.map(r=><option key={r}>{r}</option>)}</Select></Field>
-      <Field label="Product">
-        <Select {...register('product')}><option value="">Select…</option>{PRODUCTS.map(p=><option key={p}>{p}</option>)}<option value="custom">Other</option></Select>
-      </Field>
-      {prVal==='custom'&&<Field label="Specify Product"><Input {...register('customProduct')} /></Field>}
+    <Drawer open={!!order} onClose={onClose} title={`Edit Order - ${order.id}`} footer={<><Button className="btnfw" onClick={handleSubmit(onSubmit)}>Save Changes</Button><Button variant="ghost" className="btnfw" onClick={onClose}>Cancel</Button></>}>
+      <Field label="Customer"><Input value={order.customer} disabled /></Field>
+      <Field label="Placed By"><Select {...register('placedBy')}><option value="">Select rep...</option>{REPS.map(rep => <option key={rep}>{rep}</option>)}</Select></Field>
+      <Field label="Product"><Select {...register('product')}><option value="">Select product...</option>{PRODUCTS.map(product => <option key={product}>{product}</option>)}<option value="custom">Other</option></Select></Field>
+      {productValue === 'custom' && <Field label="Specify Product"><Input {...register('customProduct')} /></Field>}
       <div className="frow">
         <Field label="Quantity"><Input {...register('qty')} type="number" /></Field>
-        <Field label="Unit Price (GH₵)"><Input {...register('unitPrice')} type="number" /></Field>
+        <Field label="Unit Price (GHs)"><Input {...register('unitPrice')} type="number" /></Field>
       </div>
+      <Field label="Delivery Date"><Input {...register('deliveryDate')} type="date" /></Field>
       <Field label="Notes"><Input {...register('notes')} /></Field>
     </Drawer>
   )
 }
 
-// ── Customer Drawer (standalone add) ─────────────────────────
 function CustomerDrawer({ open, onClose, dispatch, toast }) {
-  const { register, handleSubmit, reset, formState:{errors} } = useForm()
+  const { register, handleSubmit, reset, formState: { errors } } = useForm({ defaultValues: { status: 'Active', type: 'CRM DTD' } })
+
   async function onSubmit(data) {
     try {
-      await dispatch({ type:'DB_INSERT', key:'customers', record:{
-        id:uid('C'), status:'Active',
-        name:data.name.trim().toUpperCase(),
-        type:data.type, region:data.region,
-        contact:data.contact, gps:data.gps, rep:data.rep,
-      }})
-      toast('success','Customer added.'); reset(); onClose()
+      await dispatch({
+        type: 'DB_INSERT',
+        key: 'customers',
+        record: {
+          id: uid('C'),
+          status: data.status || 'Active',
+          name: (data.name || '').trim().toUpperCase(),
+          type: data.type,
+          region: data.region || null,
+          contact: data.contact || null,
+          gps: data.gps || null,
+          rep: data.rep || null,
+        },
+      })
+      toast('success', 'Customer added.')
+      reset({ status: 'Active', type: 'CRM DTD' })
+      onClose()
     } catch (error) {
       toast('error', error.message || 'Could not add customer.')
     }
   }
+
   return (
-    <Drawer open={open} onClose={onClose} title="Add Customer"
-      footer={<><Button className="btnfw" onClick={handleSubmit(onSubmit)}>Save Customer</Button><Button variant="ghost" className="btnfw" onClick={onClose}>Cancel</Button></>}>
-      <Field label="Company / Name" required error={errors.name?.message}><Input {...register('name',{required:'Required'})} placeholder="e.g. Metro Fast Food" /></Field>
+    <Drawer open={open} onClose={onClose} title="Add Customer" footer={<><Button className="btnfw" onClick={handleSubmit(onSubmit)}>Save Customer</Button><Button variant="ghost" className="btnfw" onClick={onClose}>Cancel</Button></>}>
+      <Field label="Company / Name" required error={errors.name?.message}><Input {...register('name', { required: 'Required' })} placeholder="e.g. Metro Fast Food" /></Field>
       <div className="frow">
-        <Field label="Type"><Select {...register('type')}><option value="">Select…</option>{CUST_TYPES.map(v=><option key={v}>{v}</option>)}</Select></Field>
+        <Field label="Type"><Select {...register('type')}><option value="">Select...</option>{CUST_TYPES.map(type => <option key={type}>{type}</option>)}</Select></Field>
         <Field label="Region"><Input {...register('region')} placeholder="e.g. Accra North" /></Field>
       </div>
-      <Field label="Contact & Phone"><Input {...register('contact')} placeholder="Name · phone" /></Field>
-      <Field label="GPS / Digital Address" hint="📍 Ghana Post GPS or coordinates"><Input {...register('gps')} placeholder="e.g. GS-0382-3921" /></Field>
-      <Field label="Account Manager"><Select {...register('rep')}><option value="">Select rep…</option>{REPS.map(r=><option key={r}>{r}</option>)}</Select></Field>
+      <Field label="Contact & Phone"><Input {...register('contact')} placeholder="Name and phone" /></Field>
+      <Field label="GPS / Digital Address"><Input {...register('gps')} placeholder="e.g. GS-0382-3921" /></Field>
+      <Field label="Account Manager"><Select {...register('rep')}><option value="">Select rep...</option>{REPS.map(rep => <option key={rep}>{rep}</option>)}</Select></Field>
       <Field label="Status"><Select {...register('status')}><option>Active</option><option>Inactive</option></Select></Field>
     </Drawer>
   )
 }
 
-// ── Edit Customer Drawer ──────────────────────────────────────
 function EditCustomerDrawer({ cust, onClose, dispatch, toast }) {
   const { register, handleSubmit } = useForm({ defaultValues: cust })
+
   async function onSubmit(data) {
     try {
-      await dispatch({ type:'DB_UPDATE', key:'customers', id:cust.id, patch:{
-        name:data.name.trim().toUpperCase(), type:data.type, region:data.region,
-        contact:data.contact, gps:data.gps, rep:data.rep, status:data.status,
-      }})
-      toast('success','Customer updated.'); onClose()
+      await dispatch({
+        type: 'DB_UPDATE',
+        key: 'customers',
+        id: cust.id,
+        patch: {
+          name: (data.name || '').trim().toUpperCase(),
+          type: data.type || null,
+          region: data.region || null,
+          contact: data.contact || null,
+          gps: data.gps || null,
+          rep: data.rep || null,
+          status: data.status || 'Active',
+        },
+      })
+      toast('success', 'Customer updated.')
+      onClose()
     } catch (error) {
       toast('error', error.message || 'Could not update customer.')
     }
   }
+
   return (
-    <Drawer open={true} onClose={onClose} title={`Edit — ${cust.name}`}
-      footer={<><Button className="btnfw" onClick={handleSubmit(onSubmit)}>Save Changes</Button><Button variant="ghost" className="btnfw" onClick={onClose}>Cancel</Button></>}>
+    <Drawer open={!!cust} onClose={onClose} title={`Edit - ${cust.name}`} footer={<><Button className="btnfw" onClick={handleSubmit(onSubmit)}>Save Changes</Button><Button variant="ghost" className="btnfw" onClick={onClose}>Cancel</Button></>}>
       <Field label="Company / Name"><Input {...register('name')} /></Field>
       <div className="frow">
-        <Field label="Type"><Select {...register('type')}><option value="">Select…</option>{CUST_TYPES.map(v=><option key={v}>{v}</option>)}</Select></Field>
+        <Field label="Type"><Select {...register('type')}><option value="">Select...</option>{CUST_TYPES.map(type => <option key={type}>{type}</option>)}</Select></Field>
         <Field label="Region"><Input {...register('region')} /></Field>
       </div>
       <Field label="Contact & Phone"><Input {...register('contact')} /></Field>
       <Field label="GPS"><Input {...register('gps')} /></Field>
-      <Field label="Account Manager"><Select {...register('rep')}><option value="">Select rep…</option>{REPS.map(r=><option key={r}>{r}</option>)}</Select></Field>
+      <Field label="Account Manager"><Select {...register('rep')}><option value="">Select rep...</option>{REPS.map(rep => <option key={rep}>{rep}</option>)}</Select></Field>
       <Field label="Status"><Select {...register('status')}><option>Active</option><option>Inactive</option></Select></Field>
     </Drawer>
   )
 }
 
-// ── Price Drawer ──────────────────────────────────────────────
-function PriceDrawer({ open, onClose, dispatch, toast }) {
-  const { register, handleSubmit, reset, formState:{errors} } = useForm()
+function B2BDrawer({ open, onClose, dispatch, toast, customers }) {
+  const { register, handleSubmit, reset } = useForm({ defaultValues: { date: today() } })
+
   async function onSubmit(data) {
     try {
-      await dispatch({ type:'DB_INSERT', key:'prices', record:{ id:uid('PR'), updatedAt:today(), product:data.product, category:data.category, unit:data.unit, price:data.price||null }})
-      toast('success','Price saved.'); reset(); onClose()
+      await dispatch({
+        type: 'DB_INSERT',
+        key: 'b2b',
+        record: {
+          id: uid('B2B'),
+          date: data.date || today(),
+          customerName: (data.customerName || '').trim().toUpperCase(),
+          volume: data.volume ? Number(data.volume) : null,
+          bdc: data.bdc || null,
+          depot: data.depot || null,
+          orderNumber: data.orderNumber || null,
+          vehicleNumber: data.vehicleNumber || null,
+          price: data.price ? Number(data.price) : null,
+          volumeInTransit: data.volumeInTransit ? Number(data.volumeInTransit) : null,
+        },
+      })
+      toast('success', 'B2B entry saved.')
+      reset({ date: today() })
+      onClose()
     } catch (error) {
-      toast('error', error.message || 'Could not save price.')
+      toast('error', error.message || 'Could not save B2B entry.')
     }
   }
+
   return (
-    <Drawer open={open} onClose={onClose} title="Set Price"
-      footer={<><Button className="btnfw" onClick={handleSubmit(onSubmit)}>Save Price</Button><Button variant="ghost" className="btnfw" onClick={onClose}>Cancel</Button></>}>
-      <Field label="Product" error={errors.product?.message}><Input {...register('product',{required:'Required'})} placeholder="e.g. 50kg Industrial Cylinder" /></Field>
-      <Field label="Category"><Select {...register('category')}><option value="">Select…</option>{['Cylinder','Bulk LPG','Autogas','Accessories'].map(v=><option key={v}>{v}</option>)}</Select></Field>
-      <Field label="Unit"><Input {...register('unit')} placeholder="e.g. per cylinder" /></Field>
-      <Field label="Price (GH₵)"><Input {...register('price')} type="number" placeholder="0.00" /></Field>
+    <Drawer open={open} onClose={onClose} title="Add B2B Entry" footer={<><Button className="btnfw" onClick={handleSubmit(onSubmit)}>Save B2B Entry</Button><Button variant="ghost" className="btnfw" onClick={onClose}>Cancel</Button></>}>
+      <div className="frow">
+        <Field label="Date"><Input {...register('date')} type="date" /></Field>
+        <Field label="Customer Name">
+          <Input {...register('customerName')} list="b2b-customers" placeholder="Select or type customer name" />
+          <datalist id="b2b-customers">{customers.filter(customer => customer.type === 'B2B').map(customer => <option key={customer.id} value={customer.name} />)}</datalist>
+        </Field>
+      </div>
+      <div className="frow">
+        <Field label="Volume"><Input {...register('volume')} type="number" placeholder="0" /></Field>
+        <Field label="BDC"><Input {...register('bdc')} placeholder="BDC" /></Field>
+      </div>
+      <div className="frow">
+        <Field label="Depot"><Input {...register('depot')} placeholder="Depot" /></Field>
+        <Field label="Order Number"><Input {...register('orderNumber')} placeholder="Order number" /></Field>
+      </div>
+      <div className="frow">
+        <Field label="Vehicle Number"><Input {...register('vehicleNumber')} placeholder="Vehicle number" /></Field>
+        <Field label="Price"><Input {...register('price')} type="number" placeholder="0.00" /></Field>
+      </div>
+      <Field label="Volume in Transit"><Input {...register('volumeInTransit')} type="number" placeholder="0" /></Field>
     </Drawer>
   )
 }
 
-// ── Edit Price Drawer ─────────────────────────────────────────
-function EditPriceDrawer({ price, onClose, dispatch, toast }) {
-  const { register, handleSubmit } = useForm({ defaultValues: price })
+function PriceDrawer({ open, onClose, dispatch, toast }) {
+  const { register, handleSubmit, reset, formState: { errors } } = useForm()
+
   async function onSubmit(data) {
     try {
-      await dispatch({ type:'DB_UPDATE', key:'prices', id:price.id, patch:{ product:data.product, category:data.category, unit:data.unit, price:data.price||null, updatedAt:today() }})
-      toast('success','Price updated.'); onClose()
+      await dispatch({ type: 'DB_INSERT', key: 'prices', record: { id: uid('PR'), updatedAt: today(), product: data.product, category: data.category, unit: data.unit, price: data.price || null } })
+      toast('success', 'Price saved.')
+      reset()
+      onClose()
+    } catch (error) {
+      toast('error', error.message || 'Could not save price.')
+    }
+  }
+
+  return (
+    <Drawer open={open} onClose={onClose} title="Set Price" footer={<><Button className="btnfw" onClick={handleSubmit(onSubmit)}>Save Price</Button><Button variant="ghost" className="btnfw" onClick={onClose}>Cancel</Button></>}>
+      <Field label="Product" error={errors.product?.message}><Input {...register('product', { required: 'Required' })} placeholder="e.g. 50kg Industrial Cylinder" /></Field>
+      <Field label="Category"><Select {...register('category')}><option value="">Select...</option>{['Cylinder', 'Bulk LPG', 'Autogas', 'Accessories'].map(category => <option key={category}>{category}</option>)}</Select></Field>
+      <Field label="Unit"><Input {...register('unit')} placeholder="e.g. per cylinder" /></Field>
+      <Field label="Price (GHs)"><Input {...register('price')} type="number" placeholder="0.00" /></Field>
+    </Drawer>
+  )
+}
+
+function EditPriceDrawer({ price, onClose, dispatch, toast }) {
+  const { register, handleSubmit } = useForm({ defaultValues: price })
+
+  async function onSubmit(data) {
+    try {
+      await dispatch({ type: 'DB_UPDATE', key: 'prices', id: price.id, patch: { product: data.product, category: data.category, unit: data.unit, price: data.price || null, updatedAt: today() } })
+      toast('success', 'Price updated.')
+      onClose()
     } catch (error) {
       toast('error', error.message || 'Could not update price.')
     }
   }
+
   return (
-    <Drawer open={true} onClose={onClose} title={`Edit Price — ${price.product}`}
-      footer={<><Button className="btnfw" onClick={handleSubmit(onSubmit)}>Save Changes</Button><Button variant="ghost" className="btnfw" onClick={onClose}>Cancel</Button></>}>
+    <Drawer open={!!price} onClose={onClose} title={`Edit Price - ${price.product}`} footer={<><Button className="btnfw" onClick={handleSubmit(onSubmit)}>Save Changes</Button><Button variant="ghost" className="btnfw" onClick={onClose}>Cancel</Button></>}>
       <Field label="Product"><Input {...register('product')} /></Field>
-      <Field label="Category"><Select {...register('category')}><option value="">Select…</option>{['Cylinder','Bulk LPG','Autogas','Accessories'].map(v=><option key={v}>{v}</option>)}</Select></Field>
+      <Field label="Category"><Select {...register('category')}><option value="">Select...</option>{['Cylinder', 'Bulk LPG', 'Autogas', 'Accessories'].map(category => <option key={category}>{category}</option>)}</Select></Field>
       <Field label="Unit"><Input {...register('unit')} /></Field>
-      <Field label="Price (GH₵)"><Input {...register('price')} type="number" /></Field>
+      <Field label="Price (GHs)"><Input {...register('price')} type="number" /></Field>
     </Drawer>
   )
+}
+
+function NewCustomerModal({ custName, onCancel, onSave }) {
+  const { register, handleSubmit, formState: { errors } } = useForm({ defaultValues: { name: custName, type: 'CRM DTD', status: 'Active' } })
+
+  function onSubmit(data) {
+    onSave({
+      id: uid('C'),
+      status: data.status || 'Active',
+      name: (data.name || '').trim().toUpperCase(),
+      type: data.type,
+      region: data.region || null,
+      contact: data.contact || null,
+      gps: data.gps || null,
+      rep: data.rep || null,
+    })
+  }
+
+  return (
+    <Modal open onClose={onCancel}>
+      <div style={{ padding: 22 }}>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8 }}>Register Customer to Continue</div>
+        <div style={{ fontSize: 12, color: 'var(--m)', marginBottom: 16 }}>This customer is not yet in the register. Add them now and the order will continue automatically.</div>
+        <div style={{ display: 'grid', gap: 12 }}>
+          <Field label="Company / Name" error={errors.name?.message}><Input {...register('name', { required: 'Required' })} /></Field>
+          <div className="frow">
+            <Field label="Type"><Select {...register('type')}><option value="">Select...</option>{CUST_TYPES.map(type => <option key={type}>{type}</option>)}</Select></Field>
+            <Field label="Region"><Input {...register('region')} /></Field>
+          </div>
+          <Field label="Contact & Phone"><Input {...register('contact')} /></Field>
+          <Field label="GPS / Digital Address"><Input {...register('gps')} /></Field>
+          <Field label="Account Manager"><Select {...register('rep')}><option value="">Select rep...</option>{REPS.map(rep => <option key={rep}>{rep}</option>)}</Select></Field>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
+          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+          <Button onClick={handleSubmit(onSubmit)}>Register and Submit Order</Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function printOrderHistory(orders) {
+  const rows = orders.map(order => `
+    <tr>
+      <td>${order.id}</td>
+      <td>${order.customer || '-'}</td>
+      <td>${order.product || '-'}</td>
+      <td>${order.qty || '-'}</td>
+      <td>${order.qty && order.unitPrice ? money(order.qty * order.unitPrice) : '-'}</td>
+      <td>${order.placedBy || '-'}</td>
+      <td>${order.deliveredAt || order.approvedAt || order.cancelledAt || order.date || '-'}</td>
+      <td>${order.status || '-'}</td>
+    </tr>
+  `).join('')
+  const win = window.open('', '_blank', 'width=900,height=700')
+  win.document.write(`<!doctype html><html><head><meta charset="UTF-8"><title>Order History</title><style>body{font-family:Arial,sans-serif;padding:24px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #dbeafe;padding:8px 10px;font-size:12px;text-align:left}th{background:#1e3a5f;color:#fff}button{margin-top:18px;padding:10px 22px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;font-weight:700}</style></head><body><h2>Commercial Order History</h2><table><thead><tr><th>Order ID</th><th>Customer</th><th>Product</th><th>Qty</th><th>Total</th><th>Placed By</th><th>Date</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table><button onclick="window.print()">Print</button></body></html>`)
+  win.document.close()
+}
+
+function printSingleOrder(order) {
+  const win = window.open('', '_blank', 'width=640,height=520')
+  win.document.write(`<!doctype html><html><head><meta charset="UTF-8"><title>${order.id}</title><style>body{font-family:Arial,sans-serif;padding:24px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.box{background:#f8fbff;border:1px solid #dbeafe;border-radius:10px;padding:12px}.label{font-size:10px;text-transform:uppercase;color:#64748b;margin-bottom:4px}.value{font-size:14px;font-weight:700}button{margin-top:18px;padding:10px 22px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;font-weight:700}</style></head><body><h2>Order ${order.id}</h2><div class="grid">${[['Customer', order.customer], ['Product', order.product], ['Qty', order.qty], ['Total', order.qty && order.unitPrice ? money(order.qty * order.unitPrice) : '-'], ['Placed By', order.placedBy], ['Date', order.date], ['Status', order.status], ['Delivery Date', order.deliveryDate || '-']].map(([label, value]) => `<div class="box"><div class="label">${label}</div><div class="value">${value || '-'}</div></div>`).join('')}</div><button onclick="window.print()">Print</button></body></html>`)
+  win.document.close()
 }

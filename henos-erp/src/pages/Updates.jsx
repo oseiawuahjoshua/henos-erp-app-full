@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form'
 import { useApp } from '../context/AppContext'
 import { useAuth } from '../auth/AuthContext'
 import { useToast } from '../hooks/useToast'
+import { exportRowsAsCsv } from '../utils/csv'
 import { formatAccraDate, today, uid } from '../utils/helpers'
 import { PageHeader, Panel, PanelHeader, PanelBody, Button, Drawer, Field, Input, Select, Badge, EmptyState, ConfirmModal } from '../components/ui'
 
@@ -35,7 +36,7 @@ export default function Updates() {
       <PageHeader title="Updates" actions={canPublish ? <Button onClick={() => setOpen(true)}>+ New Update</Button> : null} />
 
       <Panel>
-        <PanelHeader title="Company Feed" actions={<Badge variant="info">{updates.length} post{updates.length === 1 ? '' : 's'}</Badge>} />
+        <PanelHeader title="Company Feed" actions={<div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}><Badge variant="info">{updates.length} post{updates.length === 1 ? '' : 's'}</Badge><Button variant="secondary" size="sm" onClick={() => exportRowsAsCsv('company-updates', ['Title','Type','Author','Date','Message'], updates.map(item => [item.title || '', item.type || '', item.author || '', item.createdAt || item.time || '', item.message || '']))}>Export CSV</Button></div>} />
         <PanelBody>
           {!updates.length ? (
             <EmptyState icon="UP" message="No company updates yet" sub="Manager announcements will appear here for everyone to see." />
@@ -75,18 +76,21 @@ function UpdateDrawer({ open, onClose, dispatch, toast, session }) {
   const { register, handleSubmit, reset } = useForm({ defaultValues: { type: 'General' } })
 
   async function onSubmit(data) {
+    if (!data.title?.trim() || !data.message?.trim()) {
+      toast('error', 'Title and message are required.')
+      return
+    }
     try {
       await dispatch({
         type: 'DB_INSERT',
         key: 'broadcasts',
         record: {
           id: uid('UP'),
-          title: data.title,
-          message: data.message,
+          title: data.title.trim(),
+          message: data.message.trim(),
           type: data.type || 'General',
           time: today(),
           author: session?.name || 'Management',
-          createdBy: session?.id || null,
         },
       })
       toast('success', 'Update published.')

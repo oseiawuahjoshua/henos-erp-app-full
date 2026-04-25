@@ -10,13 +10,24 @@ router.post('/', async (req, res) => {
   try {
     const { items, ...rest } = req.body
     res.status(201).json(await prisma.delivery.create({
-      data:{ ...rest, items:{create:(items||[]).map(it=>({type:it.type,qty:Number(it.qty||1),bulkDesc:it.bulkDesc||null,isBulk:!!it.isBulk}))} },
+      data:{
+        ...rest,
+        exchangePoints: Array.isArray(rest.exchangePoints) ? rest.exchangePoints : [],
+        items:{create:(items||[]).map(it=>({type:it.type,qty:Number(it.qty||1),bulkDesc:it.bulkDesc||null,isBulk:!!it.isBulk}))}
+      },
       include:{items:true}
     }))
   } catch (e) { res.status(500).json({error:e.message}) }
 })
 router.patch('/:id', async (req, res) => {
-  try { res.json(await prisma.delivery.update({ where:{id:req.params.id}, data:req.body })) } catch (e) { res.status(500).json({error:e.message}) }
+  try {
+    const payload = { ...req.body }
+    if ('exchangePoints' in payload) {
+      payload.exchangePoints = Array.isArray(payload.exchangePoints) ? payload.exchangePoints : []
+    }
+    res.json(await prisma.delivery.update({ where:{id:req.params.id}, data:payload }))
+  } catch (e) { res.status(500).json({error:e.message}) }
+})
 })
 router.delete('/:id', async (req, res) => {
   try { await prisma.delivery.delete({ where:{id:req.params.id} }); res.json({success:true}) } catch (e) { res.status(500).json({error:e.message}) }

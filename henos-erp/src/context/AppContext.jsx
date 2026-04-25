@@ -13,11 +13,14 @@ function createInitialState() {
       stock: [],
       deliveries: [],
       suppliers: [],
+      b2b: [],
       campaigns: [],
       leads: [],
       cnotifs: [],
       anotifs: [],
       broadcasts: [],
+      leaveSchedules: [],
+      salaries: [],
     },
     deliveredLog: [],
     holding: { elh: [], kum: [], wcd: [] },
@@ -294,15 +297,20 @@ export function AppProvider({ children }) {
           next.db.orders = orders.map(normalizeOrder)
         }
 
+        if (canAccess('commercial') || canAccess('accounts') || canAccess('operations')) {
+          const customers = await apiGet('/api/customers', token)
+          next.db.customers = customers
+        }
+
         if (canAccess('commercial')) {
-          const [customers, prices, cnotifs] = await Promise.all([
-            apiGet('/api/customers', token),
+          const [prices, cnotifs, b2b] = await Promise.all([
             apiGet('/api/prices', token),
             apiGet('/api/notifications/cnotifs', token),
+            apiGet('/api/b2b', token),
           ])
-          next.db.customers = customers
           next.db.prices = prices
           next.db.cnotifs = cnotifs
+          next.db.b2b = b2b
         }
 
         if (canAccess('accounts')) {
@@ -341,13 +349,22 @@ export function AppProvider({ children }) {
           }
         }
 
-        if (canAccess('marketing')) {
+        if (canAccess('crm') || canAccess('marketing')) {
           const [campaigns, leads] = await Promise.all([
             apiGet('/api/campaigns', token),
             apiGet('/api/campaigns/leads', token),
           ])
           next.db.campaigns = campaigns
           next.db.leads = leads
+        }
+
+        if (canAccess('hr')) {
+          const [leaveSchedules, salaries] = await Promise.all([
+            apiGet('/api/hr/leave-schedules', token),
+            apiGet('/api/hr/salaries', token),
+          ])
+          next.db.leaveSchedules = leaveSchedules
+          next.db.salaries = salaries
         }
 
         if (canAccess('stations')) {
@@ -510,7 +527,14 @@ async function handleInsert(action, state, token, session) {
       return
 
     case 'invoices': {
-      const customer = resolveCustomer(state, record.customer)
+      let customer = findCustomerByName(state.db.customers, record.customer)
+      if (!customer) {
+        const customers = await apiGet('/api/customers', token)
+        customer = findCustomerByName(customers, record.customer)
+      }
+      if (!customer) {
+        throw new Error(`Customer "${record.customer}" was not found.`)
+      }
       const created = await apiPost('/api/invoices', {
         ...sanitizeInvoicePayload(record),
         customerId: customer.id,
@@ -542,6 +566,26 @@ async function handleInsert(action, state, token, session) {
 
     case 'leads':
       action.record = await apiPost('/api/campaigns/leads', normalizeBlankStrings(record), token)
+      return
+
+    case 'b2b': {
+      const customer = record.customerId
+        ? { id: record.customerId, name: record.customerName || '' }
+        : findCustomerByName(state.db.customers, record.customerName)
+      action.record = await apiPost('/api/b2b', {
+        ...normalizeBlankStrings(record),
+        customerId: customer?.id || null,
+        customerName: customer?.name || record.customerName,
+      }, token)
+      return
+    }
+
+    case 'leaveSchedules':
+      action.record = await apiPost('/api/hr/leave-schedules', normalizeBlankStrings(record), token)
+      return
+
+    case 'salaries':
+      action.record = await apiPost('/api/hr/salaries', normalizeBlankStrings(record), token)
       return
 
     case 'broadcasts':
@@ -590,6 +634,16 @@ async function handleUpdate(action, state, token) {
       await apiPatch(`/api/campaigns/${id}`, patch, token)
       return
     case 'leads':
+      await apiPatch(`/api/campaigns/leads/${id}`, patch, token)
+      return
+    case 'b2b':
+      await apiPatch(`/api/b2b/${id}`, normalizeBlankStrings(patch), token)
+      return
+    case 'leaveSchedules':
+      await apiPatch(`/api/hr/leave-schedules/${id}`, normalizeBlankStrings(patch), token)
+      return
+    case 'salaries':
+      await apiPatch(`/api/hr/salaries/${id}`, normalizeBlankStrings(patch), token)
       return
     default:
       return
@@ -609,7 +663,10 @@ async function handleDelete(action, token) {
     suppliers: `/api/suppliers/${id}`,
     campaigns: `/api/campaigns/${id}`,
     leads: `/api/campaigns/leads/${id}`,
+    b2b: `/api/b2b/${id}`,
     broadcasts: `/api/notifications/${id}`,
+    leaveSchedules: `/api/hr/leave-schedules/${id}`,
+    salaries: `/api/hr/salaries/${id}`,
   }
   if (routeMap[key]) await apiDelete(routeMap[key], token)
 }
@@ -628,6 +685,10 @@ function resolveCustomer(state, name) {
     throw new Error(`Customer "${name}" was not found.`)
   }
   return customer
+}
+
+function findCustomerByName(customers, name) {
+  return customers.find(item => item.name?.trim().toUpperCase() === String(name || '').trim().toUpperCase()) || null
 }
 
 function resolvePlacedById(state, session, placedByName) {

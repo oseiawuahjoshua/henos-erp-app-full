@@ -52,7 +52,7 @@ model User {
 model Customer {
   id        String    @id @default(cuid())
   name      String    @unique
-  type      String?                        // Commercial, Industrial, etc.
+  type      String?                        // CRM DTD, B2B
   region    String?
   contact   String?
   gps       String?
@@ -64,6 +64,7 @@ model Customer {
   // A customer can have many orders and invoices
   orders    Order[]
   invoices  Invoice[]
+  b2bOrders B2BOrder[]
 
   @@map("customers")
 }
@@ -230,6 +231,7 @@ model Delivery {
   driver      String?
   truck       String?
   destination String?
+  exchangePoints String[]    @default([])
   status      String         @default("Scheduled")
   date        String?
   items       DeliveryItem[]
@@ -389,6 +391,58 @@ model Lead {
   @@map("leads")
 }
 
+model B2BOrder {
+  id              String    @id @default(cuid())
+  date            String?
+  customerName    String
+  customerId      String?
+  volume          Float?
+  bdc             String?
+  depot           String?
+  orderNumber     String?
+  vehicleNumber   String?
+  price           Float?
+  volumeInTransit Float?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  customer        Customer? @relation(fields:[customerId], references:[id])
+
+  @@map("b2b_orders")
+}
+
+model LeaveSchedule {
+  id           String   @id @default(cuid())
+  employeeName String
+  employeeId   String?
+  department   String?
+  leaveType    String?
+  startDate    String?
+  endDate      String?
+  days         Float?
+  status       String   @default("Scheduled")
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("leave_schedules")
+}
+
+model SalaryRecord {
+  id           String   @id @default(cuid())
+  employeeName String
+  employeeId   String?
+  department   String?
+  month        String?
+  amount       Float    @default(0)
+  status       String   @default("Pending")
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("salary_records")
+}
+
 // ═══════════════════════════════════════════════════════════════
 // ESG — Environmental, Social, Governance tracking
 // ═══════════════════════════════════════════════════════════════
@@ -430,6 +484,7 @@ model Notification {
   type     String                            // "approved" | "rejected" | etc.
   title    String
   message  String
+  author   String?
   read     Boolean  @default(false)
   time     String?
   createdAt DateTime @default(now())

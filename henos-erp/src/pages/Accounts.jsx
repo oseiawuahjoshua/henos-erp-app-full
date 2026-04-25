@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../hooks/useToast'
+import { exportRowsAsCsv } from '../utils/csv'
 import { uid, today, money, statusVariant, REPS, REP_COLORS } from '../utils/helpers'
 import { PageHeader, Pills, Card, CardBody, CardHeader, Table, Badge, RepBadge, Button, Drawer, Field, Input, Select, NotifBell, EmptyState, ConfirmModal, KpiCard } from '../components/ui'
 
@@ -79,6 +80,7 @@ export default function Accounts() {
 
       <Pills tabs={[
         {id:'invoices',label:'Invoices'},
+        {id:'customers',label:'Customers'},
         {id:'expenses',label:'Expenses'},
         {id:'balances',label:'Balances'},
         {id:'pl',      label:'P&L'},
@@ -93,6 +95,10 @@ export default function Accounts() {
             type="date"
             style={{minWidth:180,border:'1.5px solid var(--b)',borderRadius:7,padding:'8px 11px',fontSize:13,outline:'none'}} />
           {(invFilter || invDateFilter) && <Button variant="ghost" size="sm" onClick={()=>{setInvFilter(''); setInvDateFilter('')}}>Reset</Button>}
+          <Button variant="secondary" size="sm" onClick={()=>exportRowsAsCsv('accounts-invoices', ['Invoice #','Customer','Rep','Amount','Paid','Balance','Delivery','Due','Status'], filtInv.map(inv => {
+            const bal = Math.max(0, Number(inv.amount || 0) - Number(inv.amountPaid || 0))
+            return [inv.id, inv.customer || '', inv.repName || '', inv.amount || '', inv.amountPaid || '', bal, inv.deliveryDate || '', inv.dueDate || '', inv.status || '']
+          }))}>Export CSV</Button>
         </div>
         <Card><CardBody noPad>
           <Table
@@ -121,8 +127,35 @@ export default function Accounts() {
         </CardBody></Card>
       </>}
 
+      {tab==='customers' && (
+        <Card><CardBody noPad>
+          <div className="phd" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}>
+            <span className="ptl2">Customer Register</span>
+            <Button variant="secondary" size="sm" onClick={()=>exportRowsAsCsv('accounts-customers', ['ID','Name','Type','Region','Contact','GPS','Account Manager','Status'], db.customers.map(c => [c.id, c.name || '', c.type || '', c.region || '', c.contact || '', c.gps || '', c.rep || '', c.status || '']))}>Export CSV</Button>
+          </div>
+          <Table
+            columns={['ID','Name','Type','Region','Contact','GPS','Acct Mgr','Status']}
+            rows={db.customers.map(c => [
+              <span style={{fontSize:11,color:'var(--m)',fontFamily:'monospace'}}>{c.id}</span>,
+              c.name || '—',
+              c.type || '—',
+              c.region || '—',
+              c.contact || '—',
+              c.gps || '—',
+              <RepBadge name={c.rep} colors={REP_COLORS} />,
+              <Badge variant={c.status==='Active'?'success':'neutral'}>{c.status || 'Active'}</Badge>,
+            ])}
+            empty="No customers available yet"
+          />
+        </CardBody></Card>
+      )}
+
       {tab==='expenses' && (
         <Card><CardBody noPad>
+          <div className="phd" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}>
+            <span className="ptl2">Expenses</span>
+            <Button variant="secondary" size="sm" onClick={()=>exportRowsAsCsv('accounts-expenses', ['ID','Category','Description','Amount','Date','Approved'], db.expenses.map(e => [e.id, e.category || '', e.description || '', e.amount || '', e.date || '', e.approved ? 'Approved' : 'Pending']))}>Export CSV</Button>
+          </div>
           <Table
             columns={['ID','Category','Description','Amount','Date','Approved','']}
             rows={db.expenses.map(e=>[
@@ -141,7 +174,7 @@ export default function Accounts() {
         </CardBody></Card>
       )}
 
-      {tab==='balances' && <BalanceSummary invoices={db.invoices} onPrint={()=>printBalances(db.invoices)} />}
+      {tab==='balances' && <BalanceSummary invoices={db.invoices} onPrint={()=>printBalances(db.invoices)} onExport={()=>exportBalanceCsv(db.invoices)} />}
       {tab==='pl' && <PLView paid={paid} unp={unp} ext={ext} invoices={db.invoices} expenses={db.expenses} />}
 
       <InvoiceDrawer open={invOpen} onClose={()=>setInvOpen(false)} db={db} dispatch={dispatch} toast={toast} />
@@ -399,7 +432,7 @@ function EditExpenseDrawer({ exp, onClose, dispatch, toast }) {
 }
 
 // ── Balance Summary ───────────────────────────────────────────
-function BalanceSummary({ invoices, onPrint }) {
+function BalanceSummary({ invoices, onPrint, onExport }) {
   const custMap = {}
   invoices.forEach(inv=>{
     const k=(inv.customer||'').trim().toUpperCase()
@@ -413,7 +446,10 @@ function BalanceSummary({ invoices, onPrint }) {
   if(!list.length) return <EmptyState icon="🏦" message="No customer balance data yet" />
   return (
     <Card>
-      <CardHeader title="Customer Balances" actions={onPrint&&<Button variant="secondary" size="sm" onClick={onPrint}>🖨 Print</Button>} />
+      <CardHeader title="Customer Balances" actions={<>
+        {onExport && <Button variant="secondary" size="sm" onClick={onExport}>Export CSV</Button>}
+        {onPrint && <Button variant="secondary" size="sm" onClick={onPrint}>🖨 Print</Button>}
+      </>} />
       <CardBody noPad>
         <Table
           columns={['Customer','Invoices','Total Invoiced','Amount Paid','Balance Due']}
@@ -434,6 +470,19 @@ function BalanceSummary({ invoices, onPrint }) {
       </CardBody>
     </Card>
   )
+}
+
+function exportBalanceCsv(invoices) {
+  const custMap = {}
+  invoices.forEach(inv => {
+    const key = (inv.customer || '').trim().toUpperCase()
+    if (!custMap[key]) custMap[key] = { customer: key, total: 0, paid: 0, count: 0 }
+    custMap[key].total += Number(inv.amount || 0)
+    custMap[key].paid += Number(inv.amountPaid || 0)
+    custMap[key].count += 1
+  })
+  const list = Object.values(custMap).map(item => [item.customer, item.count, item.total, item.paid, item.total - item.paid])
+  exportRowsAsCsv('accounts-balances', ['Customer','Invoices','Total Invoiced','Amount Paid','Balance Due'], list)
 }
 
 // ── P&L View ─────────────────────────────────────────────────

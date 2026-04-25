@@ -7,7 +7,13 @@ router.get('/:channel', async (req, res) => {
   try { res.json(await prisma.notification.findMany({ where:{channel:req.params.channel}, orderBy:{createdAt:'desc'}, take:50 })) } catch (e) { res.status(500).json({error:e.message}) }
 })
 router.post('/', async (req, res) => {
-  try { res.status(201).json(await prisma.notification.create({ data:req.body })) } catch (e) { res.status(500).json({error:e.message}) }
+  try {
+    const { channel, type, title, message, read, time, author } = req.body || {}
+    res.status(201).json(await prisma.notification.create({
+      data: { channel, type, title, message, read: !!read, time, author: author || null },
+    }))
+  } catch (e) { res.status(500).json({error:e.message}) }
+})
 })
 router.patch('/:id/read', async (req, res) => {
   try { res.json(await prisma.notification.update({ where:{id:req.params.id}, data:{read:true} })) } catch (e) { res.status(500).json({error:e.message}) }

@@ -8,11 +8,20 @@ export function money(n) {
 }
 
 export function today() {
-  return new Date().toISOString().slice(0, 10)
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Accra',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
 }
 
 export function ts() {
-  return `${today()} ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
+  return `${today()} ${new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Africa/Accra',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date())}`
 }
 
 export function getAccraNow() {

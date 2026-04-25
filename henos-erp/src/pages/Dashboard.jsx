@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router'
 import { PieChart, Pie, Cell, Tooltip } from 'recharts'
 import { useApp } from '../context/AppContext'
 import { useAuth } from '../auth/AuthContext'
-import { formatAccraDate, greet, money } from '../utils/helpers'
+import { formatAccraDate, greet, money, today } from '../utils/helpers'
 import { KpiCard, Badge, Button } from '../components/ui'
 
 export default function Dashboard() {
@@ -10,16 +10,17 @@ export default function Dashboard() {
   const { db } = state
   const { session, canAccess } = useAuth()
   const navigate = useNavigate()
+  const todaysOrders = db.orders.filter(order => (order.date || '') === today())
 
   const paid = db.invoices.filter(i => i.status === 'Paid').reduce((sum, invoice) => sum + Number(invoice.amount || 0), 0)
   const outstanding = db.invoices.reduce((sum, invoice) => sum + Math.max(0, Number(invoice.amount || 0) - Number(invoice.amountPaid || 0)), 0)
   const criticalStock = db.stock.filter(item => item.status === 'Critical').length
   const pipelineValue = db.leads.reduce((sum, lead) => sum + Number(lead.value || 0), 0)
-  const pending = db.orders.filter(order => order.status === 'Awaiting Ops Review').length
-  const active = db.orders.filter(order => ['Awaiting Ops Review', 'Processing', 'In Transit'].includes(order.status)).length
-  const delivered = db.orders.filter(order => order.status === 'Delivered').length
-  const cancelled = db.orders.filter(order => order.status === 'Cancelled').length
-  const total = db.orders.length
+  const pending = todaysOrders.filter(order => order.status === 'Awaiting Ops Review').length
+  const active = todaysOrders.filter(order => ['Awaiting Ops Review', 'Processing', 'In Transit'].includes(order.status)).length
+  const delivered = todaysOrders.filter(order => order.status === 'Delivered').length
+  const cancelled = todaysOrders.filter(order => order.status === 'Cancelled').length
+  const total = todaysOrders.length
   const todayLabel = formatAccraDate({ weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
   const timeLabel = formatAccraDate({ hour: '2-digit', minute: '2-digit', hour12: true })
   const latestUpdate = db.broadcasts[0]
@@ -76,9 +77,9 @@ export default function Dashboard() {
       <div className="dashboard-grid">
         <div className="panel">
           <div style={{ padding: '18px 20px' }}>
-            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 14 }}>Order Tracker</div>
+            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 14 }}>Order Tracker Today</div>
             {total === 0 ? (
-              <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--m)', fontSize: 13 }}>No orders yet</div>
+              <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--m)', fontSize: 13 }}>No orders recorded for today</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
                 <div style={{ position: 'relative', width: 180, height: 180 }}>
