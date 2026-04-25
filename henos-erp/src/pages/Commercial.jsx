@@ -5,7 +5,7 @@ import { useAuth } from '../auth/AuthContext'
 import { useToast } from '../hooks/useToast'
 import { exportRowsAsCsv } from '../utils/csv'
 import { uid, today, ts, money, statusVariant, REPS, REP_COLORS, owedBalance } from '../utils/helpers'
-import { PageHeader, Pills, Card, CardBody, Table, Badge, RepBadge, Button, Drawer, Field, Input, Select, NotifBell, ConfirmModal } from '../components/ui'
+import { PageHeader, Pills, Card, CardBody, Table, Badge, RepBadge, Button, Drawer, Field, Input, Select, NotifBell, ConfirmModal, Modal } from '../components/ui'
 
 const PRODUCTS = ['50KG Cylinder', '14.5KG Cylinder', '12.5KG Cylinder', '6KG Cylinder', '3KG Cylinder', 'Bulk LPG', 'Autogas']
 const CUST_TYPES = ['CRM DTD', 'B2B']

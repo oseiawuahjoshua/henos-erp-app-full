@@ -303,14 +303,14 @@ export function AppProvider({ children }) {
         }
 
         if (canAccess('commercial')) {
-          const [prices, cnotifs, b2b] = await Promise.all([
+          const [prices, cnotifs, b2b] = await Promise.allSettled([
             apiGet('/api/prices', token),
             apiGet('/api/notifications/cnotifs', token),
             apiGet('/api/b2b', token),
           ])
-          next.db.prices = prices
-          next.db.cnotifs = cnotifs
-          next.db.b2b = b2b
+          if (prices.status === 'fulfilled') next.db.prices = prices.value
+          if (cnotifs.status === 'fulfilled') next.db.cnotifs = cnotifs.value
+          if (b2b.status === 'fulfilled') next.db.b2b = b2b.value
         }
 
         if (canAccess('accounts')) {
