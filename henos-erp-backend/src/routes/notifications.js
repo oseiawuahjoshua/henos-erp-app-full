@@ -14,7 +14,6 @@ router.post('/', async (req, res) => {
     }))
   } catch (e) { res.status(500).json({error:e.message}) }
 })
-})
 router.patch('/:id/read', async (req, res) => {
   try { res.json(await prisma.notification.update({ where:{id:req.params.id}, data:{read:true} })) } catch (e) { res.status(500).json({error:e.message}) }
 })
