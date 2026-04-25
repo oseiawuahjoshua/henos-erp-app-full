@@ -28,7 +28,6 @@ router.patch('/:id', async (req, res) => {
     res.json(await prisma.delivery.update({ where:{id:req.params.id}, data:payload }))
   } catch (e) { res.status(500).json({error:e.message}) }
 })
-})
 router.delete('/:id', async (req, res) => {
   try { await prisma.delivery.delete({ where:{id:req.params.id} }); res.json({success:true}) } catch (e) { res.status(500).json({error:e.message}) }
 })
