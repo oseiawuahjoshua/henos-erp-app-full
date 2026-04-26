@@ -24,6 +24,7 @@ export default function Accounts() {
   const [detailView, setDetailView] = useState(null)
   const [invFilter, setInvFilter] = useState('')
   const [invDateFilter, setInvDateFilter] = useState('')
+  const [invSourceFilter, setInvSourceFilter] = useState('all')
   const [customerSearch, setCustomerSearch] = useState('')
   const [expenseSearch, setExpenseSearch] = useState('')
   const [paymentSearch, setPaymentSearch] = useState('')
@@ -46,8 +47,9 @@ export default function Accounts() {
     const customerMatches = !invFilter || invoice.customer?.toLowerCase().includes(invFilter.toLowerCase()) || invoice.id?.toLowerCase().includes(invFilter.toLowerCase())
     const invoiceDay = invoice.date || invoice.createdAt?.slice?.(0, 10) || ''
     const dateMatches = !invDateFilter || invoiceDay === invDateFilter
-    return customerMatches && dateMatches
-  }), [invDateFilter, invFilter, invoices])
+    const sourceMatches = invSourceFilter === 'all' || String(invoice.source || 'Commercial').toLowerCase() === invSourceFilter
+    return customerMatches && dateMatches && sourceMatches
+  }), [invDateFilter, invFilter, invSourceFilter, invoices])
 
   const filteredCustomers = useMemo(() => customers.filter(customer =>
     !customerSearch || [customer.name, customer.type, customer.region, customer.contact, customer.rep]
@@ -138,15 +140,16 @@ export default function Accounts() {
             placeholder="Search customer or invoice..."
             dateValue={invDateFilter}
             onDateChange={setInvDateFilter}
-            onReset={() => { setInvFilter(''); setInvDateFilter('') }}
-            showReset={!!(invFilter || invDateFilter)}
-            actions={<Button variant="secondary" size="sm" onClick={() => exportRowsAsCsv('accounts-invoices', ['Invoice #', 'Customer', 'Rep', 'Amount', 'Paid', 'Balance', 'Delivery', 'Due', 'Status'], filteredInvoices.map(invoice => [invoice.id, invoice.customer || '', invoice.repName || '', invoice.amount || '', invoice.amountPaid || '', getInvoiceBalance(invoice), invoice.deliveryDate || '', invoice.dueDate || '', invoice.status || '']))}>Export CSV</Button>}
+            onReset={() => { setInvFilter(''); setInvDateFilter(''); setInvSourceFilter('all') }}
+            showReset={!!(invFilter || invDateFilter || invSourceFilter !== 'all')}
+            actions={<><Select value={invSourceFilter} onChange={event => setInvSourceFilter(event.target.value)} style={{ minWidth: 150 }}><option value="all">All Invoices</option><option value="commercial">Commercial</option><option value="b2b">B2B</option></Select><Button variant="secondary" size="sm" onClick={() => exportRowsAsCsv('accounts-invoices', ['Invoice #', 'Source', 'Customer', 'Rep', 'Amount', 'Paid', 'Balance', 'Delivery', 'Due', 'Status'], filteredInvoices.map(invoice => [invoice.id, invoice.source || 'Commercial', invoice.customer || '', invoice.repName || '', invoice.amount || '', invoice.amountPaid || '', getInvoiceBalance(invoice), invoice.deliveryDate || '', invoice.dueDate || '', invoice.status || '']))}>Export CSV</Button></>}
           />
           <Card><CardBody noPad>
             <Table
-              columns={['Invoice #', 'Customer', 'Rep', 'Amount', 'Paid', 'Balance', 'Delivery', 'Due', 'Status', '']}
+              columns={['Invoice #', 'Source', 'Customer', 'Rep', 'Amount', 'Paid', 'Balance', 'Delivery', 'Due', 'Status', '']}
               rows={filteredInvoices.map(invoice => [
                 <button type="button" className="detail-action-link" onClick={() => setDetailView({ type: 'invoice', record: invoice })}><span style={monoStyle}>{invoice.id}</span></button>,
+                <Badge variant={String(invoice.source || 'Commercial').toUpperCase() === 'B2B' ? 'info' : 'ops'}>{invoice.source || 'Commercial'}</Badge>,
                 invoice.customer || '—',
                 <RepBadge name={invoice.repName} colors={REP_COLORS} />,
                 money(invoice.amount || 0),
