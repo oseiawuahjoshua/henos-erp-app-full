@@ -17,6 +17,7 @@ import userRoutes         from './routes/users.js'
 import customerRoutes     from './routes/customers.js'
 import orderRoutes        from './routes/orders.js'
 import invoiceRoutes      from './routes/invoices.js'
+import paymentRoutes      from './routes/payments.js'
 import expenseRoutes      from './routes/expenses.js'
 import priceRoutes        from './routes/prices.js'
 import stockRoutes        from './routes/stock.js'
@@ -96,6 +97,7 @@ app.use('/api/users',         userRoutes)
 app.use('/api/customers',     customerRoutes)
 app.use('/api/orders',        orderRoutes)
 app.use('/api/invoices',      invoiceRoutes)
+app.use('/api/payments',      paymentRoutes)
 app.use('/api/expenses',      expenseRoutes)
 app.use('/api/prices',        priceRoutes)
 app.use('/api/stock',         stockRoutes)

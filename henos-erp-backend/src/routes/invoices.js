@@ -18,7 +18,7 @@ function sanitizeInvoicePayload(body = {}) {
 router.get('/', async (req, res) => {
   try {
     res.json(await prisma.invoice.findMany({
-      include: { customer:{select:{name:true}}, items:true },
+      include: { customer:{select:{id:true,name:true}}, items:true, payments:true },
       orderBy: { createdAt:'desc' }
     }))
   } catch (e) { res.status(500).json({ error: e.message }) }
@@ -34,7 +34,7 @@ router.post('/', async (req, res) => {
         ...(createdById ? { createdBy:{connect:{id:createdById}} } : {}),
         items: { create: (items||[]).map(it=>({ type:it.type, qty:Number(it.qty||1), price:Number(it.price||0), bulkDesc:it.bulkDesc, isBulk:!!it.isBulk })) }
       },
-      include: { items:true }
+      include: { items:true, customer:{select:{id:true,name:true}}, payments:true }
     }))
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
@@ -52,7 +52,7 @@ router.patch('/:id', async (req, res) => {
           ? { items:{ create:items.map(it=>({type:it.type,qty:Number(it.qty||1),price:Number(it.price||0),bulkDesc:it.bulkDesc,isBulk:!!it.isBulk})) } }
           : {}),
       },
-      include:{items:true}
+      include:{items:true, customer:{select:{id:true,name:true}}, payments:true}
     }))
   } catch (e) { res.status(500).json({ error: e.message }) }
 })

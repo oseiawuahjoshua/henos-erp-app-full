@@ -65,6 +65,7 @@ model Customer {
   orders    Order[]
   invoices  Invoice[]
   b2bOrders B2BOrder[]
+  payments  Payment[]
 
   @@map("customers")
 }
@@ -133,6 +134,7 @@ model Invoice {
 
   // The line items (cylinders, bulk LPG, etc.)
   items       InvoiceItem[]
+  payments    Payment[]
 
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
@@ -166,7 +168,15 @@ model Expense {
   amount      Float         @default(0)
   category    String?
   approved    Boolean       @default(false)
+  status      String        @default("Pending Approval")
   date        String?
+  approvedAt  String?
+  approvedBy  String?
+  rejectedAt  String?
+  rejectedBy  String?
+  rejectionReason String?
+  paidAt      String?
+  paymentMethod String?
 
   createdBy   User?         @relation(fields:[createdById], references:[id])
   createdById String?
@@ -189,6 +199,26 @@ model ExpenseItem {
   expenseId   String
 
   @@map("expense_items")
+}
+
+model Payment {
+  id             String   @id @default(cuid())
+  date           String?
+  amount         Float    @default(0)
+  method         String?
+  reference      String?
+  notes          String?
+  receiptNo      String   @unique
+  recordedByName String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  invoice        Invoice  @relation(fields:[invoiceId], references:[id], onDelete:Cascade)
+  invoiceId      String
+  customer       Customer @relation(fields:[customerId], references:[id], onDelete:Cascade)
+  customerId     String
+
+  @@map("payments")
 }
 
 // ═══════════════════════════════════════════════════════════════

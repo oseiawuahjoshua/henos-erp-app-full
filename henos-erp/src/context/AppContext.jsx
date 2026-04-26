@@ -9,6 +9,7 @@ function createInitialState() {
       customers: [],
       prices: [],
       invoices: [],
+      payments: [],
       expenses: [],
       stock: [],
       deliveries: [],
@@ -74,6 +75,9 @@ function reduceState(state, action) {
     case 'DB_INSERT': {
       const existing = state.db[action.key].filter(record => record.id !== action.record.id)
       const db = { ...state.db, [action.key]: [action.record, ...existing] }
+      if (action.key === 'payments' && action.meta?.invoice) {
+        db.invoices = state.db.invoices.map(invoice => invoice.id === action.meta.invoice.id ? action.meta.invoice : invoice)
+      }
       return { ...state, db }
     }
 
@@ -242,7 +246,17 @@ function normalizeInvoice(invoice) {
   return {
     ...invoice,
     customer: invoice.customer?.name || invoice.customer || '',
+    customerId: invoice.customer?.id || invoice.customerId || null,
     items: invoice.items || [],
+    payments: invoice.payments || [],
+  }
+}
+
+function normalizePayment(payment) {
+  return {
+    ...payment,
+    customer: payment.customer?.name || payment.customer || '',
+    invoiceId: payment.invoice?.id || payment.invoiceId || '',
   }
 }
 
@@ -319,12 +333,14 @@ export function AppProvider({ children }) {
         }
 
         if (canAccess('accounts')) {
-          const [invoices, expenses, anotifs] = await Promise.all([
+          const [invoices, payments, expenses, anotifs] = await Promise.all([
             apiGet('/api/invoices', token),
+            apiGet('/api/payments', token),
             apiGet('/api/expenses', token),
             apiGet('/api/notifications/anotifs', token),
           ])
           next.db.invoices = invoices.map(normalizeInvoice)
+          next.db.payments = payments.map(normalizePayment)
           next.db.expenses = expenses
           next.db.anotifs = anotifs
         }
@@ -576,6 +592,18 @@ async function handleInsert(action, state, token, session) {
       action.record = await apiPost('/api/expenses', { ...record, createdById: session.id }, token)
       return
 
+    case 'payments': {
+      const result = await apiPost('/api/payments', normalizeBlankStrings({
+        ...record,
+        recordedByName: session.name,
+      }), token)
+      action.record = normalizePayment(result.payment)
+      action.meta = {
+        invoice: normalizeInvoice(result.invoice),
+      }
+      return
+    }
+
     case 'stock':
       action.record = await apiPost('/api/stock', normalizeBlankStrings(record), token)
       return
@@ -664,6 +692,8 @@ async function handleUpdate(action, state, token) {
     case 'expenses':
       await apiPatch(`/api/expenses/${id}`, patch, token)
       return
+    case 'payments':
+      return
     case 'stock':
       await apiPatch(`/api/stock/${id}`, patch, token)
       return
@@ -712,6 +742,7 @@ async function handleDelete(action, token) {
     customers: `/api/customers/${id}`,
     prices: `/api/prices/${id}`,
     invoices: `/api/invoices/${id}`,
+    payments: `/api/payments/${id}`,
     expenses: `/api/expenses/${id}`,
     stock: `/api/stock/${id}`,
     deliveries: `/api/deliveries/${id}`,

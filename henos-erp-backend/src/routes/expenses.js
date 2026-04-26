@@ -12,13 +12,25 @@ router.post('/', async (req, res) => {
   try {
     const { items, createdById, ...rest } = req.body
     res.status(201).json(await prisma.expense.create({
-      data: { ...rest, ...(createdById?{createdBy:{connect:{id:createdById}}}:{}), items:{create:(items||[]).map(it=>({description:it.description,qty:Number(it.qty||1),unitCost:Number(it.unitCost||0)}))} },
+      data: {
+        ...rest,
+        status: rest.status || 'Pending Approval',
+        approved: rest.status === 'Approved' || !!rest.approved,
+        ...(createdById?{createdBy:{connect:{id:createdById}}}:{}),
+        items:{create:(items||[]).map(it=>({description:it.description,qty:Number(it.qty||1),unitCost:Number(it.unitCost||0)}))}
+      },
       include:{items:true}
     }))
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 router.patch('/:id', async (req, res) => {
-  try { res.json(await prisma.expense.update({ where:{id:req.params.id}, data:req.body })) }
+  try {
+    const next = { ...req.body }
+    if (next.status) {
+      next.approved = next.status === 'Approved'
+    }
+    res.json(await prisma.expense.update({ where:{id:req.params.id}, data:next }))
+  }
   catch (e) { res.status(500).json({ error: e.message }) }
 })
 router.delete('/:id', async (req, res) => {
