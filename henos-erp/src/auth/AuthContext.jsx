@@ -4,7 +4,7 @@ import { apiDelete, apiGet, apiPatch, apiPost } from '../lib/api'
 export const ALL_MODULES = [
   { id: 'dashboard', label: 'Dashboard', icon: 'DB' },
   { id: 'commercial', label: 'Commercial', icon: 'CM' },
-  { id: 'crm', label: 'CRM', icon: 'CR' },
+  { id: 'logistics', label: 'Logistics', icon: 'LG' },
   { id: 'accounts', label: 'Accounts', icon: 'AC' },
   { id: 'operations', label: 'Operations', icon: 'OP' },
   { id: 'marketing', label: 'Branding & Mktg', icon: 'MK' },
@@ -20,18 +20,18 @@ export const ALL_MODULES = [
 export const ROLES = [
   { id: 'admin', label: 'Administrator', color: '#dc2626', desc: 'Full access to all modules and user management' },
   { id: 'manager', label: 'Manager', color: '#7c3aed', desc: 'Cross-functional oversight with HR and updates access' },
-  { id: 'sales_rep', label: 'Sales Representative', color: '#1a56db', desc: 'Commercial, CRM, dashboard, and updates' },
+  { id: 'sales_rep', label: 'Sales Representative', color: '#1a56db', desc: 'Commercial, dashboard, and updates' },
   { id: 'accountant', label: 'Accounts Officer', color: '#16a34a', desc: 'Accounts, dashboard, and updates' },
   { id: 'operations', label: 'Operations Officer', color: '#d97706', desc: 'Operations, EaziGas, Stations, dashboard, and updates' },
   { id: 'viewer', label: 'Viewer / Read-only', color: '#6b7280', desc: 'Dashboard and company updates view only' },
 ]
 
 export const ROLE_DEFAULTS = {
-  admin: ['dashboard', 'commercial', 'crm', 'accounts', 'operations', 'marketing', 'hr', 'updates', 'stations', 'eazigas', 'esg', 'settings', 'users'],
-  manager: ['dashboard', 'commercial', 'crm', 'accounts', 'operations', 'marketing', 'hr', 'updates', 'stations', 'eazigas', 'esg'],
-  sales_rep: ['dashboard', 'commercial', 'crm', 'updates'],
+  admin: ['dashboard', 'commercial', 'logistics', 'accounts', 'operations', 'marketing', 'hr', 'updates', 'stations', 'eazigas', 'esg', 'settings', 'users'],
+  manager: ['dashboard', 'commercial', 'logistics', 'accounts', 'operations', 'marketing', 'hr', 'updates', 'stations', 'eazigas', 'esg'],
+  sales_rep: ['dashboard', 'commercial', 'updates'],
   accountant: ['dashboard', 'accounts', 'updates'],
-  operations: ['dashboard', 'operations', 'updates', 'eazigas', 'stations'],
+  operations: ['dashboard', 'operations', 'logistics', 'updates', 'eazigas', 'stations'],
   viewer: ['dashboard', 'updates'],
 }
 

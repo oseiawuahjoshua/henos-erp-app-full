@@ -13,6 +13,8 @@ function createInitialState() {
       stock: [],
       deliveries: [],
       suppliers: [],
+      logisticsVehicles: [],
+      logisticsLoadings: [],
       b2b: [],
       campaigns: [],
       leads: [],
@@ -350,6 +352,19 @@ export function AppProvider({ children }) {
           }
         }
 
+        if (canAccess('logistics')) {
+          const vehicles = await apiGet('/api/logistics/vehicles', token)
+          next.db.logisticsVehicles = vehicles.map(vehicle => ({
+            ...vehicle,
+            loadings: undefined,
+          }))
+          next.db.logisticsLoadings = vehicles.flatMap(vehicle => (vehicle.loadings || []).map(loading => ({
+            ...loading,
+            vehicleId: vehicle.id,
+            vehicleRef: vehicle.brvNumber,
+          })))
+        }
+
         if (canAccess('crm') || canAccess('marketing')) {
           const [campaigns, leads] = await Promise.all([
             apiGet('/api/campaigns', token),
@@ -561,6 +576,14 @@ async function handleInsert(action, state, token, session) {
       action.record = await apiPost('/api/suppliers', normalizeBlankStrings(record), token)
       return
 
+    case 'logisticsVehicles':
+      action.record = await apiPost('/api/logistics/vehicles', normalizeBlankStrings(record), token)
+      return
+
+    case 'logisticsLoadings':
+      action.record = await apiPost('/api/logistics/loadings', normalizeBlankStrings(record), token)
+      return
+
     case 'campaigns':
       action.record = await apiPost('/api/campaigns', normalizeBlankStrings(record), token)
       return
@@ -631,6 +654,12 @@ async function handleUpdate(action, state, token) {
     case 'suppliers':
       await apiPatch(`/api/suppliers/${id}`, patch, token)
       return
+    case 'logisticsVehicles':
+      await apiPatch(`/api/logistics/vehicles/${id}`, normalizeBlankStrings(patch), token)
+      return
+    case 'logisticsLoadings':
+      await apiPatch(`/api/logistics/loadings/${id}`, normalizeBlankStrings(patch), token)
+      return
     case 'campaigns':
       await apiPatch(`/api/campaigns/${id}`, patch, token)
       return
@@ -662,6 +691,8 @@ async function handleDelete(action, token) {
     stock: `/api/stock/${id}`,
     deliveries: `/api/deliveries/${id}`,
     suppliers: `/api/suppliers/${id}`,
+    logisticsVehicles: `/api/logistics/vehicles/${id}`,
+    logisticsLoadings: `/api/logistics/loadings/${id}`,
     campaigns: `/api/campaigns/${id}`,
     leads: `/api/campaigns/leads/${id}`,
     b2b: `/api/b2b/${id}`,

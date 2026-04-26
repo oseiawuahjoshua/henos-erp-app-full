@@ -1001,27 +1001,30 @@ function StockDrawer({ open, onClose, dispatch, toast }) {
 }
 
 function LocationField({ mode, selectedPoints, setSelectedPoints, register, locationOptions }) {
-  function toggleOption(option) {
-    setSelectedPoints(current => current.includes(option) ? current.filter(item => item !== option) : [...current, option])
-  }
   return (
     <>
       <Field label="Delivery Location">
-        <Select {...register('locationType')} defaultValue="exchange">
-          <option value="exchange">Exchange Point / CRM DTD</option>
+        <Select {...register('locationType')} defaultValue="crm_dtd">
+          <option value="crm_dtd">CRM-DTD</option>
+          <option value="exchange_points">Exchange Points</option>
           <option value="other">Other (type below)</option>
         </Select>
       </Field>
-      {mode === 'exchange' ? (
-        <Field label="Exchange Points / Drop Points">
-          <div style={{display:'grid',gap:8}}>
-            {locationOptions.map(option => (
-              <label key={option} style={{display:'flex',alignItems:'center',gap:8,border:'1.5px solid var(--b)',borderRadius:8,padding:'9px 11px',fontSize:13}}>
-                <input type="checkbox" checked={selectedPoints.includes(option)} onChange={()=>toggleOption(option)} />
-                <span>{option}</span>
-              </label>
-            ))}
-          </div>
+      {mode === 'exchange_points' ? (
+        <Field label="Select Exchange Points">
+          <select
+            multiple
+            value={selectedPoints}
+            onChange={event => setSelectedPoints(Array.from(event.target.selectedOptions, option => option.value))}
+            style={{width:'100%',minHeight:120,border:'1.5px solid var(--b)',borderRadius:8,padding:'9px 11px',fontSize:13,outline:'none',background:'#fff',fontFamily:'inherit'}}
+          >
+            {locationOptions.map(option => <option key={option} value={option}>{option}</option>)}
+          </select>
+          <div className="hint">Hold `Ctrl` to select multiple exchange points.</div>
+        </Field>
+      ) : mode === 'crm_dtd' ? (
+        <Field label="Selected Location">
+          <Input value="CRM-DTD" disabled />
         </Field>
       ) : (
         <Field label="Custom Destination">
@@ -1035,23 +1038,23 @@ function LocationField({ mode, selectedPoints, setSelectedPoints, register, loca
 function DelivDrawer({ open, onClose, dispatch, toast }) {
   const { state } = useApp()
   const epLocations = state.exchangePoints || []
-  const locationOptions = ['CRM DTD', ...epLocations.map(ep => `${ep.name}${ep.location ? ` - ${ep.location}` : ''}`)]
-  const { register, handleSubmit, reset, watch } = useForm({ defaultValues: { locationType:'exchange' } })
+  const locationOptions = epLocations.map(ep => `${ep.name}${ep.location ? ` - ${ep.location}` : ''}`)
+  const { register, handleSubmit, reset, watch } = useForm({ defaultValues: { locationType:'crm_dtd' } })
   const [items, setItems] = useState([])
   const [selectedPoints, setSelectedPoints] = useState([])
-  const locationMode = watch('locationType', 'exchange')
+  const locationMode = watch('locationType', 'crm_dtd')
   async function onSubmit(d) {
-    const destination = locationMode === 'exchange' ? selectedPoints.join(' | ') : d.destination
+    const destination = locationMode === 'crm_dtd' ? 'CRM-DTD' : locationMode === 'exchange_points' ? selectedPoints.join(' | ') : d.destination
     if (!destination) { toast('error','Destination required.'); return }
     try {
       await dispatch({ type:'DB_INSERT', key:'deliveries', record:{
         id:uid('DEL'), date:today(),
         orderRef:d.orderRef, driver:d.driver, truck:d.truck,
         destination,
-        exchangePoints: locationMode === 'exchange' ? selectedPoints : [],
+        exchangePoints: locationMode === 'exchange_points' ? selectedPoints : [],
         status:d.status||'Scheduled', items,
       }})
-      toast('success','Delivery added.'); reset({ locationType:'exchange' }); setItems([]); setSelectedPoints([]); onClose()
+      toast('success','Delivery added.'); reset({ locationType:'crm_dtd' }); setItems([]); setSelectedPoints([]); onClose()
     } catch (error) {
       toast('error', error.message || 'Could not add delivery.')
     }

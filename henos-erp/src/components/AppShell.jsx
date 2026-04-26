@@ -6,6 +6,7 @@ import { ToastContainer } from './ui'
 import { LOGO_URL } from '../utils/helpers'
 import Dashboard from '../pages/Dashboard'
 import Commercial from '../pages/Commercial'
+import Logistics from '../pages/Logistics'
 import Accounts from '../pages/Accounts'
 import Operations from '../pages/Operations'
 import Marketing from '../pages/Marketing'
@@ -20,6 +21,7 @@ import Updates from '../pages/Updates'
 const NAV = [
   { id: 'dashboard', label: 'Dashboard', badge: 'DB', path: '/' },
   { id: 'commercial', label: 'Commercial', badge: 'CM', path: '/commercial' },
+  { id: 'logistics', label: 'Logistics', badge: 'LG', path: '/logistics' },
   { id: 'accounts', label: 'Accounts', badge: 'AC', path: '/accounts' },
   { id: 'operations', label: 'Operations', badge: 'OP', path: '/operations' },
   { id: 'marketing', label: 'Branding', badge: 'MK', path: '/marketing' },
@@ -163,6 +165,7 @@ export default function AppShell() {
             <Routes>
               <Route path="/" element={<Protected moduleId="dashboard"><Dashboard /></Protected>} />
               <Route path="/commercial" element={<Protected moduleId="commercial"><Commercial /></Protected>} />
+              <Route path="/logistics" element={<Protected moduleId="logistics"><Logistics /></Protected>} />
               <Route path="/accounts" element={<Protected moduleId="accounts"><Accounts /></Protected>} />
               <Route path="/operations" element={<Protected moduleId="operations"><Operations /></Protected>} />
               <Route path="/marketing" element={<Protected moduleId="marketing"><Marketing /></Protected>} />

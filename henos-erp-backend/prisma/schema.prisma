@@ -443,6 +443,44 @@ model SalaryRecord {
   @@map("salary_records")
 }
 
+model LogisticsVehicle {
+  id         String            @id @default(cuid())
+  brvNumber  String            @unique
+  name       String?
+  type       String?
+  capacityKg Float?
+  driver     String?
+  status     String            @default("Active")
+  notes      String?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  loadings   LogisticsLoading[]
+
+  @@map("logistics_vehicles")
+}
+
+model LogisticsLoading {
+  id                    String           @id @default(cuid())
+  date                  String
+  period                Float?
+  driver                String?
+  productWeight         Float            @default(0)
+  location              String?
+  distance              Float?
+  rate                  Float            @default(0)
+  amountPayable         Float            @default(0)
+  fuel                  Float?
+  roadExpenses          Float?
+  productExpensePercent Float            @default(0)
+  omc                   String?
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  vehicle               LogisticsVehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  vehicleId             String
+
+  @@map("logistics_loadings")
+}
+
 // ═══════════════════════════════════════════════════════════════
 // ESG — Environmental, Social, Governance tracking
 // ═══════════════════════════════════════════════════════════════
