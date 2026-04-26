@@ -15,6 +15,20 @@ const DISTANCE_RATE_TABLE = {
   308: 0.87,
 }
 
+async function resolveRate(distance, providedRate) {
+  const directRate = toNumberOrZero(providedRate)
+  if (directRate > 0) return directRate
+  if (!Number.isFinite(Number(distance))) return 0
+
+  const roundedDistance = Math.round(Number(distance))
+  const storedRate = await prisma.logisticsRate.findUnique({
+    where: { distance: roundedDistance },
+  })
+
+  if (storedRate?.rate) return Number(storedRate.rate)
+  return DISTANCE_RATE_TABLE[roundedDistance] || 0
+}
+
 function requireLogisticsAccess(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' })
   const modules = req.user.modules || []
@@ -53,10 +67,10 @@ function normalizeVehicle(body = {}) {
   }
 }
 
-function normalizeLoading(body = {}) {
+async function normalizeLoading(body = {}) {
   const productWeight = toNumberOrZero(body.productWeight)
   const distance = toNumberOrNull(body.distance)
-  const rate = toNumberOrZero(body.rate) || DISTANCE_RATE_TABLE[Math.round(distance || 0)] || 0
+  const rate = await resolveRate(distance, body.rate)
   const fuel = toNumberOrZero(body.fuel)
   const roadExpenses = toNumberOrZero(body.roadExpenses)
   const amountPayable = Number((productWeight * rate * 0.925).toFixed(2))
@@ -90,6 +104,71 @@ function normalizeMaintenance(body = {}) {
     notes: body.notes ? String(body.notes).trim() : null,
   }
 }
+
+function normalizeRate(body = {}) {
+  return {
+    distance: toNumberOrZero(body.distance),
+    rate: toNumberOrZero(body.rate),
+    notes: body.notes ? String(body.notes).trim() : null,
+  }
+}
+
+router.get('/rates', requireLogisticsAccess, async (req, res) => {
+  try {
+    const storedRates = await prisma.logisticsRate.findMany({
+      orderBy: { distance: 'asc' },
+    })
+
+    if (storedRates.length) {
+      return res.json(storedRates)
+    }
+
+    const fallbackRates = Object.entries(DISTANCE_RATE_TABLE)
+      .map(([distance, rate]) => ({
+        id: `default-${distance}`,
+        distance: Number(distance),
+        rate,
+        notes: 'Default logistics rate',
+      }))
+      .sort((a, b) => a.distance - b.distance)
+
+    res.json(fallbackRates)
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+router.post('/rates', requireLogisticsAccess, async (req, res) => {
+  try {
+    res.status(201).json(await prisma.logisticsRate.upsert({
+      where: { distance: toNumberOrZero(req.body?.distance) },
+      update: normalizeRate(req.body),
+      create: normalizeRate(req.body),
+    }))
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+router.patch('/rates/:id', requireLogisticsAccess, async (req, res) => {
+  try {
+    res.json(await prisma.logisticsRate.update({
+      where: { id: req.params.id },
+      data: normalizeRate(req.body),
+    }))
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+router.delete('/rates/:id', requireLogisticsAccess, async (req, res) => {
+  try {
+    await prisma.logisticsRate.delete({ where: { id: req.params.id } })
+    res.json({ success: true })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
 
 router.get('/vehicles', requireLogisticsAccess, async (req, res) => {
   try {
@@ -139,7 +218,7 @@ router.post('/loadings', requireLogisticsAccess, async (req, res) => {
     const { vehicleId, ...rest } = req.body || {}
     res.status(201).json(await prisma.logisticsLoading.create({
       data: {
-        ...normalizeLoading(rest),
+        ...(await normalizeLoading(rest)),
         vehicle: { connect: { id: vehicleId } },
       },
     }))
@@ -151,7 +230,7 @@ router.post('/loadings', requireLogisticsAccess, async (req, res) => {
 router.patch('/loadings/:id', requireLogisticsAccess, async (req, res) => {
   try {
     const { vehicleId, ...rest } = req.body || {}
-    const data = normalizeLoading(rest)
+    const data = await normalizeLoading(rest)
     if (vehicleId) data.vehicle = { connect: { id: vehicleId } }
     res.json(await prisma.logisticsLoading.update({
       where: { id: req.params.id },

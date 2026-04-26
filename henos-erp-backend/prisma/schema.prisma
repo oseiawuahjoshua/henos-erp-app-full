@@ -498,6 +498,17 @@ model LogisticsMaintenance {
   @@map("logistics_maintenance")
 }
 
+model LogisticsRate {
+  id        String   @id @default(cuid())
+  distance  Float    @unique
+  rate      Float    @default(0)
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("logistics_rates")
+}
+
 // ═══════════════════════════════════════════════════════════════
 // ESG — Environmental, Social, Governance tracking
 // ═══════════════════════════════════════════════════════════════

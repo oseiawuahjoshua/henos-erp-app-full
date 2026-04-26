@@ -40,6 +40,17 @@ export function rateFromDistance(value, table = LOGISTICS_DISTANCE_RATES) {
   return exact ? Number(exact.rate) : null
 }
 
+export function normalizeDistanceRateRows(rows = []) {
+  return [...rows]
+    .map(item => ({
+      ...item,
+      distance: Number(item.distance || 0),
+      rate: Number(item.rate || 0),
+    }))
+    .filter(item => Number.isFinite(item.distance) && item.distance > 0 && Number.isFinite(item.rate))
+    .sort((a, b) => a.distance - b.distance)
+}
+
 export function ts() {
   return `${today()} ${new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Africa/Accra',

@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form'
 import { useApp } from '../context/AppContext'
 import { useToast } from '../hooks/useToast'
 import { exportRowsAsCsv } from '../utils/csv'
-import { uid, today, money, periodFromDate, LOGISTICS_DISTANCE_RATES, rateFromDistance } from '../utils/helpers'
+import { uid, today, money, periodFromDate, LOGISTICS_DISTANCE_RATES, rateFromDistance, normalizeDistanceRateRows } from '../utils/helpers'
 import { PageHeader, Pills, Card, CardBody, CardHeader, Button, Drawer, Field, Input, Select, Table, EmptyState, KpiCard, ConfirmModal } from '../components/ui'
 
 export default function Logistics() {
@@ -12,13 +12,16 @@ export default function Logistics() {
   const vehicles = state.db.logisticsVehicles || []
   const loadings = state.db.logisticsLoadings || []
   const maintenanceRecords = state.db.logisticsMaintenance || []
+  const storedRates = state.db.logisticsRates || []
   const [vehicleOpen, setVehicleOpen] = useState(false)
   const [loadingOpen, setLoadingOpen] = useState(false)
   const [maintenanceOpen, setMaintenanceOpen] = useState(false)
+  const [rateOpen, setRateOpen] = useState(false)
   const [selectedVehicleId, setSelectedVehicleId] = useState(vehicles[0]?.id || null)
   const [sheetDate, setSheetDate] = useState('')
   const [maintenanceDate, setMaintenanceDate] = useState('')
   const [tab, setTab] = useState('loadings')
+  const [pnlPeriod, setPnlPeriod] = useState('')
   const [delConfirm, setDelConfirm] = useState(null)
 
   useEffect(() => {
@@ -32,6 +35,7 @@ export default function Logistics() {
   }, [selectedVehicleId, vehicles])
 
   const selectedVehicle = vehicles.find(vehicle => vehicle.id === selectedVehicleId) || vehicles[0] || null
+  const activeRates = useMemo(() => normalizeDistanceRateRows(storedRates.length ? storedRates : LOGISTICS_DISTANCE_RATES), [storedRates])
 
   const vehicleLoadings = useMemo(() => loadings
     .filter(loading => loading.vehicleId === selectedVehicle?.id)
@@ -90,6 +94,41 @@ export default function Logistics() {
       .sort((a, b) => String(b.period).localeCompare(String(a.period)))
   }, [vehicleLoadings, vehicleMaintenance])
 
+  const pnlPeriods = useMemo(() => pnlRows.map(row => row.period).filter(Boolean), [pnlRows])
+
+  useEffect(() => {
+    if (!pnlRows.length) {
+      setPnlPeriod('')
+      return
+    }
+    if (!pnlPeriod || !pnlRows.some(row => row.period === pnlPeriod)) {
+      setPnlPeriod(pnlRows[0].period)
+    }
+  }, [pnlPeriod, pnlRows])
+
+  const selectedPnl = useMemo(() => {
+    if (!pnlRows.length) return null
+    return pnlRows.find(row => row.period === pnlPeriod) || pnlRows[0]
+  }, [pnlPeriod, pnlRows])
+
+  const pnlSummary = useMemo(() => {
+    if (!selectedPnl) return null
+    const serviceCharge = Number((selectedPnl.amountPayable * 0.15).toFixed(2))
+    const totalNetUppf = Number((selectedPnl.amountPayable - serviceCharge).toFixed(2))
+    const deductionTotal = Number((selectedPnl.roadExpenses + selectedPnl.maintenance).toFixed(2))
+    const netUppfToProvider = Number((totalNetUppf - deductionTotal).toFixed(2))
+    return {
+      period: selectedPnl.period,
+      totalUppfPayable: selectedPnl.amountPayable,
+      serviceCharge,
+      totalNetUppf,
+      roadExpenses: selectedPnl.roadExpenses,
+      maintenance: selectedPnl.maintenance,
+      deductionTotal,
+      netUppfToProvider,
+    }
+  }, [selectedPnl])
+
   async function doDelete() {
     try {
       await dispatch({ type: 'DB_DELETE', key: delConfirm.key, id: delConfirm.id })
@@ -107,6 +146,7 @@ export default function Logistics() {
     <div style={{ animation: 'fadein .3s cubic-bezier(.4,0,.2,1)' }}>
       <PageHeader title="Logistics" actions={<>
         <Button variant="secondary" onClick={() => setVehicleOpen(true)}>+ Register BRV</Button>
+        <Button variant="secondary" onClick={() => setRateOpen(true)}>+ Rate Chart</Button>
         <Button variant="secondary" onClick={() => setMaintenanceOpen(true)} disabled={!selectedVehicle}>+ Maintenance</Button>
         <Button onClick={() => setLoadingOpen(true)} disabled={!selectedVehicle}>+ Record Loading</Button>
       </>} />
@@ -209,7 +249,7 @@ export default function Logistics() {
             <CardBody noPad>
               <Table
                 columns={['Distance', 'Rate']}
-                rows={LOGISTICS_DISTANCE_RATES.map(item => [`${item.distance} km`, Number(item.rate).toFixed(2)])}
+                rows={activeRates.map(item => [`${item.distance} km`, Number(item.rate).toFixed(2)])}
                 empty="No rate chart configured"
               />
             </CardBody>
@@ -310,21 +350,50 @@ export default function Logistics() {
 
               {tab === 'pnl' && (
                 <>
-                  <div className="ibar ib" style={{ marginBottom: 12 }}>
-                    <span>P&L is calculated from amount payable minus fuel, road expenses, and maintenance for each period.</span>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+                    <label style={{ fontSize: 11, color: 'var(--m)' }}>Period:</label>
+                    <select value={pnlPeriod} onChange={event => setPnlPeriod(event.target.value)} style={filterSelectStyle}>
+                      {pnlPeriods.map(value => <option key={value} value={value}>{value}</option>)}
+                    </select>
                   </div>
+                  {pnlSummary ? (
+                    <>
+                      <div style={{ border: '1px solid var(--b)', borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
+                        <div style={{ padding: '14px 16px', background: 'var(--bg)', borderBottom: '1px solid var(--b)', fontWeight: 800 }}>
+                          SERVICE PROVIDER, {String(selectedVehicle?.name || selectedVehicle?.brvNumber || 'BRV').toUpperCase()} · {pnlSummary.period}
+                        </div>
+                        <div style={{ padding: '8px 0' }}>
+                          <PnlLine label="Total UPPF Payable to Service Provider" value={pnlSummary.totalUppfPayable} />
+                          <PnlLine label="15% Service Charge to Client" value={-pnlSummary.serviceCharge} negative />
+                          <PnlLine label="Total Net UPPF" value={pnlSummary.totalNetUppf} strong />
+                          <div style={{ padding: '14px 16px 8px', fontWeight: 800 }}>Less Repairs and Maintenance for the Month</div>
+                          <PnlLine label="ROAD EXPENSES" value={pnlSummary.roadExpenses} />
+                          <PnlLine label="MAINTENANCE COST" value={pnlSummary.maintenance} />
+                          <PnlLine label="TOTAL" value={pnlSummary.deductionTotal} strong />
+                          <PnlLine label="Net UPPF to Service Provider" value={pnlSummary.netUppfToProvider} strong finalRow />
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <EmptyState icon="PL" message="No P&L records yet" sub="Add loadings and maintenance for this BRV to generate the monthly P&L." />
+                  )}
                   <Table
-                    columns={['Period', 'Loadings', 'Amount Payable', 'Fuel', 'Road Expenses', 'Maintenance', 'Total Cost', 'Net P&L']}
-                    rows={pnlRows.map(item => [
-                      item.period || '-',
-                      item.loadings,
-                      money(item.amountPayable),
-                      money(item.fuel),
-                      money(item.roadExpenses),
-                      money(item.maintenance),
-                      money(item.totalCost),
-                      <span style={{ color: item.net >= 0 ? 'var(--g)' : 'var(--r)', fontWeight: 700 }}>{money(item.net)}</span>,
-                    ])}
+                    columns={['Period', 'Loadings', 'UPPF Payable', '15% Charge', 'Net UPPF', 'Road Expenses', 'Maintenance', 'Net to Provider']}
+                    rows={pnlRows.map(item => {
+                      const serviceCharge = Number((item.amountPayable * 0.15).toFixed(2))
+                      const totalNetUppf = Number((item.amountPayable - serviceCharge).toFixed(2))
+                      const netToProvider = Number((totalNetUppf - item.roadExpenses - item.maintenance).toFixed(2))
+                      return [
+                        item.period || '-',
+                        item.loadings,
+                        money(item.amountPayable),
+                        `(${money(serviceCharge)})`,
+                        money(totalNetUppf),
+                        money(item.roadExpenses),
+                        money(item.maintenance),
+                        <span style={{ color: netToProvider >= 0 ? 'var(--g)' : 'var(--r)', fontWeight: 700 }}>{money(netToProvider)}</span>,
+                      ]
+                    })}
                     empty="No P&L records yet"
                   />
                 </>
@@ -335,6 +404,7 @@ export default function Logistics() {
       </div>
 
       <VehicleDrawer open={vehicleOpen} onClose={() => setVehicleOpen(false)} dispatch={dispatch} toast={toast} />
+      <RateDrawer open={rateOpen} onClose={() => setRateOpen(false)} dispatch={dispatch} toast={toast} />
       {selectedVehicle && <LoadingDrawer open={loadingOpen} onClose={() => setLoadingOpen(false)} dispatch={dispatch} toast={toast} vehicle={selectedVehicle} />}
       {selectedVehicle && <MaintenanceDrawer open={maintenanceOpen} onClose={() => setMaintenanceOpen(false)} dispatch={dispatch} toast={toast} vehicle={selectedVehicle} />}
       <ConfirmModal open={!!delConfirm} onClose={() => setDelConfirm(null)} onConfirm={doDelete} title="Confirm Delete" message="This record will be permanently deleted." />
@@ -347,6 +417,25 @@ function Metric({ label, value }) {
     <div style={{ background: 'var(--bg)', borderRadius: 10, padding: '10px 12px' }}>
       <div style={{ fontSize: 10, color: 'var(--m)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 4 }}>{label}</div>
       <div style={{ fontSize: 14, fontWeight: 700 }}>{value}</div>
+    </div>
+  )
+}
+
+function PnlLine({ label, value, negative = false, strong = false, finalRow = false }) {
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: '1fr 180px',
+      gap: 12,
+      padding: '10px 16px',
+      borderTop: '1px solid var(--b)',
+      fontWeight: strong || finalRow ? 800 : 500,
+      background: finalRow ? 'var(--bg)' : '#fff',
+    }}>
+      <div>{label}</div>
+      <div style={{ textAlign: 'right', color: negative ? 'var(--r)' : '#0D0F14' }}>
+        {negative ? `(${money(Math.abs(value || 0))})` : money(value || 0)}
+      </div>
     </div>
   )
 }
@@ -395,7 +484,46 @@ function VehicleDrawer({ open, onClose, dispatch, toast }) {
   )
 }
 
+function RateDrawer({ open, onClose, dispatch, toast }) {
+  const { register, handleSubmit, reset } = useForm()
+
+  async function onSubmit(data) {
+    try {
+      await dispatch({
+        type: 'DB_INSERT',
+        key: 'logisticsRates',
+        record: {
+          id: uid('RATE'),
+          distance: Number(data.distance || 0),
+          rate: Number(data.rate || 0),
+          notes: data.notes || null,
+        },
+      })
+      toast('success', 'Rate chart updated.')
+      reset()
+      onClose()
+    } catch (error) {
+      toast('error', error.message || 'Could not save rate.')
+    }
+  }
+
+  return (
+    <Drawer open={open} onClose={onClose} title="Add Distance Rate" footer={<><Button className="btnfw" onClick={handleSubmit(onSubmit)}>Save Rate</Button><Button variant="ghost" className="btnfw" onClick={onClose}>Cancel</Button></>}>
+      <div className="ibar ib" style={{ marginBottom: 12 }}>
+        <span>Adding a distance that already exists will update its rate instead of creating a duplicate.</span>
+      </div>
+      <div className="frow">
+        <Field label="Distance"><Input {...register('distance')} type="number" placeholder="e.g. 140" /></Field>
+        <Field label="Rate"><Input {...register('rate')} type="number" step="0.01" placeholder="e.g. 0.47" /></Field>
+      </div>
+      <Field label="Notes"><Input {...register('notes')} placeholder="Optional route or source note" /></Field>
+    </Drawer>
+  )
+}
+
 function LoadingDrawer({ open, onClose, dispatch, toast, vehicle }) {
+  const { state } = useApp()
+  const activeRates = useMemo(() => normalizeDistanceRateRows((state.db.logisticsRates || []).length ? state.db.logisticsRates : LOGISTICS_DISTANCE_RATES), [state.db.logisticsRates])
   const { register, handleSubmit, reset, watch, setValue, getValues } = useForm({
     defaultValues: {
       date: today(),
@@ -412,7 +540,7 @@ function LoadingDrawer({ open, onClose, dispatch, toast, vehicle }) {
   const rate = Number(watch('rate') || 0)
   const fuel = Number(watch('fuel') || 0)
   const roadExpenses = Number(watch('roadExpenses') || 0)
-  const matchedRate = rateFromDistance(distanceValue)
+  const matchedRate = rateFromDistance(distanceValue, activeRates)
   const amountPayable = Number((productWeight * rate * 0.925).toFixed(2))
   const productExpensePercent = amountPayable > 0 ? Number((((fuel + roadExpenses) / amountPayable) * 100).toFixed(2)) : 0
 
