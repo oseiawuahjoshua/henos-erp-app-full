@@ -776,11 +776,7 @@ function PLView({ invoices, expenses, payments }) {
     acc[key].count += 1
     return acc
   }, {})).sort((a, b) => b.total - a.total)
-  const expenseByStatus = ['Pending Approval', 'Approved', 'Rejected', 'Paid'].map(status => ({
-    status,
-    total: expenses.filter(expense => (expense.status || 'Pending Approval') === status).reduce((sum, expense) => sum + Number(expense.amount || 0), 0),
-    count: expenses.filter(expense => (expense.status || 'Pending Approval') === status).length,
-  }))
+  const expenseTrend = buildMonthlyExpenseTrend(expenses, 6)
   const recentExpenses = expenses.slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))).slice(0, 6)
 
   return (
@@ -820,17 +816,9 @@ function PLView({ invoices, expenses, payments }) {
             </CardBody>
           </Card>
           <Card>
-            <CardHeader title="Expense Status Summary" />
-            <CardBody noPad>
-              <Table
-                columns={['Status', 'Entries', 'Total']}
-                rows={expenseByStatus.map(item => [
-                  <Badge variant={expenseStatusVariant(item.status)}>{item.status}</Badge>,
-                  item.count,
-                  money(item.total),
-                ])}
-                empty="No expense status data yet"
-              />
+            <CardHeader title="Monthly Expense Trend" />
+            <CardBody>
+              <ExpenseTrendCard points={expenseTrend} />
             </CardBody>
           </Card>
         </div>
@@ -852,6 +840,51 @@ function PLView({ invoices, expenses, payments }) {
         </Card>
       </CardBody>
     </Card>
+  )
+}
+
+function ExpenseTrendCard({ points }) {
+  if (!points.length) return <div style={emptyInlineStyle}>No monthly expense data yet.</div>
+  const max = Math.max(...points.map(point => point.total || 0), 1)
+  const path = points.map((point, index) => {
+    const x = points.length === 1 ? 12 : 12 + (index * (276 / (points.length - 1)))
+    const y = 88 - ((point.total || 0) / max) * 56
+    return `${index === 0 ? 'M' : 'L'} ${x} ${y}`
+  }).join(' ')
+
+  return (
+    <div style={{ background: 'linear-gradient(180deg,#f8fbff,#ffffff)', border: '1px solid var(--b)', borderRadius: 14, padding: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 8 }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>Expenses by Month</div>
+          <div style={{ fontSize: 12, color: 'var(--m)' }}>Tracks monthly expense movement for quick comparison.</div>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--m)' }}>Latest total: <strong style={{ color: '#0D0F14' }}>{money(points.at(-1)?.total || 0)}</strong></div>
+      </div>
+      <svg viewBox="0 0 300 110" style={{ width: '100%', height: 110 }}>
+        <path d="M 12 88 L 288 88" stroke="#dbeafe" strokeWidth="1" fill="none" />
+        <path d={path} stroke="#f59e0b" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        {points.map((point, index) => {
+          const x = points.length === 1 ? 12 : 12 + (index * (276 / (points.length - 1)))
+          const y = 88 - ((point.total || 0) / max) * 56
+          return (
+            <g key={point.label}>
+              <circle cx={x} cy={y} r="4" fill="#f59e0b" />
+              <text x={x} y="104" textAnchor="middle" style={{ fontSize: 9, fill: '#64748b' }}>{point.label}</text>
+            </g>
+          )
+        })}
+      </svg>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(110px,1fr))', gap: 8, marginTop: 8 }}>
+        {points.map(point => (
+          <div key={point.label} style={{ background: '#fff', border: '1px solid var(--b)', borderRadius: 10, padding: '8px 10px' }}>
+            <div style={{ fontSize: 10, color: 'var(--m)', marginBottom: 4 }}>{point.label}</div>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>{money(point.total)}</div>
+            <div style={{ fontSize: 11, color: '#d97706' }}>{point.count} expense{point.count === 1 ? '' : 's'}</div>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -936,6 +969,25 @@ function buildAgingRows(invoices) {
   })
 
   return Array.from(byCustomer.values()).sort((a, b) => (b.bucket90Plus + b.bucket90 + b.bucket60 + b.bucket30 + b.current) - (a.bucket90Plus + a.bucket90 + a.bucket60 + a.bucket30 + a.current))
+}
+
+function buildMonthlyExpenseTrend(expenses, months = 6) {
+  const points = []
+  for (let offset = months - 1; offset >= 0; offset -= 1) {
+    const day = new Date()
+    day.setMonth(day.getMonth() - offset)
+    const year = day.getFullYear()
+    const month = String(day.getMonth() + 1).padStart(2, '0')
+    const key = `${year}-${month}`
+    const monthExpenses = expenses.filter(expense => String(expense.date || '').slice(0, 7) === key)
+    points.push({
+      key,
+      label: key.slice(2),
+      count: monthExpenses.length,
+      total: monthExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0),
+    })
+  }
+  return points
 }
 
 function buildExpenseStatusPatch(expense, status) {

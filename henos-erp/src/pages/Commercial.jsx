@@ -462,10 +462,10 @@ function OrderDrawer({ open, onClose, db, exchangePoints, dispatch, toast, onNew
   }
 
   async function onSubmit(data) {
-    const customer = (data.customer || '').trim().toUpperCase()
     const channel = data.channel || 'Commercial'
+    const customer = channel === 'Exchange Point' ? 'EXCHANGE POINT ORDERS' : (data.customer || '').trim().toUpperCase()
     const product = data.product === 'custom' ? (data.customProduct || '').trim().toUpperCase() : data.product
-    if (!customer) {
+    if (channel === 'Commercial' && !customer) {
       toast('error', 'Customer is required.')
       return
     }
@@ -518,7 +518,28 @@ function OrderDrawer({ open, onClose, db, exchangePoints, dispatch, toast, onNew
       exchangeBreakdown,
     }
 
-    const existing = db.customers.find(item => item.name?.trim().toUpperCase() === customer)
+    let existing = db.customers.find(item => item.name?.trim().toUpperCase() === customer)
+    if (!existing && channel === 'Exchange Point') {
+      try {
+        existing = await dispatch({
+          type: 'DB_INSERT',
+          key: 'customers',
+          record: {
+            id: uid('C'),
+            status: 'Active',
+            name: customer,
+            type: 'Commercial',
+            region: null,
+            contact: null,
+            gps: null,
+            rep: data.placedBy || autoRep || null,
+          },
+        })
+      } catch (error) {
+        toast('error', error.message || 'Could not prepare exchange point order.')
+        return
+      }
+    }
     if (!existing) {
       onNewCust({ custName: customer, pendingOrder: order })
       resetOrderForm()
@@ -560,12 +581,20 @@ function OrderDrawer({ open, onClose, db, exchangePoints, dispatch, toast, onNew
           <option value="Exchange Point">Exchange Point</option>
         </Select>
       </Field>
-      <Field label="Customer Name" error={errors.customer?.message} hint={customerName ? customerExists ? 'Customer found in register.' : 'Customer not found yet. You will be prompted to register them.' : undefined}>
-        <Input {...register('customer', { required: 'Customer name is required.' })} placeholder="e.g. METRO FAST FOOD" />
-      </Field>
-      {customerName && customerExists && owed > 0 && (
-        <div className="ibar ir">
-          <span><strong>{customerName}</strong> currently owes <strong>{money(owed)}</strong>. Operations will see this in review.</span>
+      {channelValue === 'Commercial' ? (
+        <>
+          <Field label="Customer Name" error={errors.customer?.message} hint={customerName ? customerExists ? 'Customer found in register.' : 'Customer not found yet. You will be prompted to register them.' : undefined}>
+            <Input {...register('customer', { required: 'Customer name is required.' })} placeholder="e.g. METRO FAST FOOD" />
+          </Field>
+          {customerName && customerExists && owed > 0 && (
+            <div className="ibar ir">
+              <span><strong>{customerName}</strong> currently owes <strong>{money(owed)}</strong>. Operations will see this in review.</span>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="ibar ib">
+          <span>Exchange point orders use the selected points below, so no customer name is needed for this workflow.</span>
         </div>
       )}
       {channelValue === 'Commercial' ? (
