@@ -4,7 +4,7 @@ import { useApp } from '../context/AppContext'
 import { useToast } from '../hooks/useToast'
 import { exportRowsAsCsv } from '../utils/csv'
 import { uid, today, money, REP_COLORS } from '../utils/helpers'
-import { PageHeader, Pills, Card, CardBody, CardHeader, Table, Badge, RepBadge, Button, Drawer, Field, Input, Select, NotifBell, EmptyState, ConfirmModal, KpiCard } from '../components/ui'
+import { PageHeader, Pills, Card, CardBody, CardHeader, Table, Badge, RepBadge, Button, Drawer, Field, Input, Select, NotifBell, EmptyState, ConfirmModal, KpiCard, DetailModal } from '../components/ui'
 
 const CYL_ITEMS = ['50KG Cylinder', '14.5KG Cylinder', '12.5KG Cylinder', '6KG Cylinder', '3KG Cylinder', 'Autogas', 'Bulk LPG']
 const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Cheque', 'MoMo', 'POS', 'Other']
@@ -21,6 +21,7 @@ export default function Accounts() {
   const [editExp, setEditExp] = useState(null)
   const [payInv, setPayInv] = useState(null)
   const [delConfirm, setDelConfirm] = useState(null)
+  const [detailView, setDetailView] = useState(null)
   const [invFilter, setInvFilter] = useState('')
   const [invDateFilter, setInvDateFilter] = useState('')
   const [customerSearch, setCustomerSearch] = useState('')
@@ -145,7 +146,7 @@ export default function Accounts() {
             <Table
               columns={['Invoice #', 'Customer', 'Rep', 'Amount', 'Paid', 'Balance', 'Delivery', 'Due', 'Status', '']}
               rows={filteredInvoices.map(invoice => [
-                <span style={monoStyle}>{invoice.id}</span>,
+                <button type="button" className="detail-action-link" onClick={() => setDetailView({ type: 'invoice', record: invoice })}><span style={monoStyle}>{invoice.id}</span></button>,
                 invoice.customer || '—',
                 <RepBadge name={invoice.repName} colors={REP_COLORS} />,
                 money(invoice.amount || 0),
@@ -180,7 +181,7 @@ export default function Accounts() {
             <Table
               columns={['Receipt', 'Date', 'Customer', 'Invoice', 'Amount', 'Method', 'Reference', 'Recorded By', '']}
               rows={filteredPayments.map(payment => [
-                <span style={monoStyle}>{payment.receiptNo || '—'}</span>,
+                <button type="button" className="detail-action-link" onClick={() => setDetailView({ type: 'payment', record: payment })}><span style={monoStyle}>{payment.receiptNo || '—'}</span></button>,
                 payment.date || '—',
                 payment.customer || '—',
                 <span style={monoStyle}>{payment.invoiceId || '—'}</span>,
@@ -228,7 +229,7 @@ export default function Accounts() {
           <Table
             columns={['ID', 'Name', 'Type', 'Region', 'Contact', 'GPS', 'Acct Mgr', 'Status']}
             rows={filteredCustomers.map(customer => [
-              <span style={monoStyle}>{customer.id}</span>,
+              <button type="button" className="detail-action-link" onClick={() => setDetailView({ type: 'customer', record: customer })}><span style={monoStyle}>{customer.id}</span></button>,
               customer.name || '—',
               customer.type || '—',
               customer.region || '—',
@@ -258,7 +259,7 @@ export default function Accounts() {
           <Table
             columns={['ID', 'Category', 'Description', 'Amount', 'Date', 'Status', '']}
             rows={filteredExpenses.map(expense => [
-              <span style={monoStyle}>{expense.id}</span>,
+              <button type="button" className="detail-action-link" onClick={() => setDetailView({ type: 'expense', record: expense })}><span style={monoStyle}>{expense.id}</span></button>,
               expense.category || '—',
               expense.description || '—',
               money(expense.amount || 0),
@@ -281,7 +282,145 @@ export default function Accounts() {
       <ExpenseDrawer open={expOpen} onClose={() => setExpOpen(false)} dispatch={dispatch} toast={toast} />
       {editExp && <EditExpenseDrawer exp={editExp} onClose={() => setEditExp(null)} dispatch={dispatch} toast={toast} />}
       {payInv && <PayModal inv={payInv} onClose={() => setPayInv(null)} dispatch={dispatch} toast={toast} />}
+      <RecordDetailModal detailView={detailView} onClose={() => setDetailView(null)} invoices={invoices} payments={payments} />
       <ConfirmModal open={!!delConfirm} onClose={() => setDelConfirm(null)} onConfirm={doDelete} title="Confirm Delete" message="This record will be permanently deleted." />
+    </div>
+  )
+}
+
+function RecordDetailModal({ detailView, onClose, invoices, payments }) {
+  if (!detailView) return null
+  const { type, record } = detailView
+
+  if (type === 'invoice') {
+    return (
+      <DetailModal open onClose={onClose} title={`Invoice ${record.id}`} subtitle={`${record.customer || 'Unknown customer'} · ${invoiceStatusLabel(record)}`}>
+        <div className="detail-grid">
+          {[
+            ['Customer', record.customer || '—'],
+            ['Rep', record.repName || '—'],
+            ['Amount', money(record.amount || 0)],
+            ['Paid', money(record.amountPaid || 0)],
+            ['Balance', money(getInvoiceBalance(record))],
+            ['Source', record.source || 'Manual'],
+            ['Date', record.date || '—'],
+            ['Delivery Date', record.deliveryDate || '—'],
+            ['Due Date', record.dueDate || '—'],
+          ].map(([label, value]) => <DetailItem key={label} label={label} value={value} />)}
+        </div>
+        <DetailSection title="Items">
+          {(record.items || []).length ? (
+            <div className="detail-list">
+              {record.items.map((item, index) => (
+                <div key={index} className="detail-card">
+                  <div className="detail-label">Item {index + 1}</div>
+                  <div className="detail-value">{item.type || '—'}{item.bulkDesc ? ` · ${item.bulkDesc}` : ''}</div>
+                  <div style={{ marginTop: 8, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <span className="detail-chip">Qty: {item.qty || 0}</span>
+                    <span className="detail-chip">Price: {money(item.price || 0)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : <div style={emptyInlineStyle}>No item breakdown recorded.</div>}
+        </DetailSection>
+        <DetailSection title="Payments">
+          {(record.payments || []).length ? (
+            <div className="detail-list">
+              {record.payments.map(payment => (
+                <div key={payment.id || payment.receiptNo} className="detail-card">
+                  <div className="detail-value">{payment.receiptNo || payment.id}</div>
+                  <div style={{ marginTop: 6, color: 'var(--m)', fontSize: 12 }}>{payment.date || '—'} · {payment.method || '—'} · {money(payment.amount || 0)}</div>
+                </div>
+              ))}
+            </div>
+          ) : <div style={emptyInlineStyle}>No payments recorded yet.</div>}
+        </DetailSection>
+      </DetailModal>
+    )
+  }
+
+  if (type === 'payment') {
+    const invoice = invoices.find(item => item.id === record.invoiceId)
+    return (
+      <DetailModal open onClose={onClose} title={`Receipt ${record.receiptNo || record.id}`} subtitle={`${record.customer || 'Unknown customer'} · ${money(record.amount || 0)}`}>
+        <div className="detail-grid">
+          {[
+            ['Customer', record.customer || '—'],
+            ['Invoice', record.invoiceId || '—'],
+            ['Date', record.date || '—'],
+            ['Method', record.method || '—'],
+            ['Reference', record.reference || '—'],
+            ['Amount', money(record.amount || 0)],
+            ['Recorded By', record.recordedByName || '—'],
+            ['Balance After Payment', invoice ? money(getInvoiceBalance(invoice)) : '—'],
+          ].map(([label, value]) => <DetailItem key={label} label={label} value={value} />)}
+        </div>
+      </DetailModal>
+    )
+  }
+
+  if (type === 'expense') {
+    return (
+      <DetailModal open onClose={onClose} title={`Expense ${record.id}`} subtitle={`${record.category || 'Uncategorised'} · ${money(record.amount || 0)}`}>
+        <div className="detail-grid">
+          {[
+            ['Category', record.category || '—'],
+            ['Date', record.date || '—'],
+            ['Amount', money(record.amount || 0)],
+            ['Status', record.status || 'Pending Approval'],
+            ['Approved By', record.approvedBy || '—'],
+            ['Paid At', record.paidAt || '—'],
+          ].map(([label, value]) => <DetailItem key={label} label={label} value={value} />)}
+        </div>
+        <DetailSection title="Description">
+          <div className="detail-value" style={{ fontWeight: 600 }}>{record.description || 'No description recorded.'}</div>
+        </DetailSection>
+      </DetailModal>
+    )
+  }
+
+  if (type === 'customer') {
+    const customerInvoices = invoices.filter(invoice => invoice.customer === record.name)
+    const customerPayments = payments.filter(payment => payment.customer === record.name)
+    return (
+      <DetailModal open onClose={onClose} title={record.name || record.id} subtitle={`${record.type || 'Customer'} · ${record.region || 'No region'}`}>
+        <div className="detail-grid">
+          {[
+            ['Customer ID', record.id || '—'],
+            ['Type', record.type || '—'],
+            ['Region', record.region || '—'],
+            ['Contact', record.contact || '—'],
+            ['GPS', record.gps || '—'],
+            ['Account Manager', record.rep || '—'],
+            ['Status', record.status || 'Active'],
+            ['Invoices', customerInvoices.length],
+            ['Payments', customerPayments.length],
+          ].map(([label, value]) => <DetailItem key={label} label={label} value={value} />)}
+        </div>
+      </DetailModal>
+    )
+  }
+
+  return null
+}
+
+function DetailSection({ title, children }) {
+  return (
+    <div className="detail-section">
+      <div className="detail-section-head">
+        <div className="detail-section-title">{title}</div>
+      </div>
+      <div className="detail-section-body">{children}</div>
+    </div>
+  )
+}
+
+function DetailItem({ label, value }) {
+  return (
+    <div className="detail-card">
+      <div className="detail-label">{label}</div>
+      <div className="detail-value">{value}</div>
     </div>
   )
 }

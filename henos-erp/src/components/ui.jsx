@@ -99,12 +99,31 @@ export function Drawer({ open, onClose, title, children, footer }) {
     </>
   )
 }
-export function Modal({ open, onClose, children }) {
+export function Modal({ open, onClose, children, className='', panelClassName='' }) {
   if (!open) return null
   return (
-    <div className="mov on" onClick={e=>{if(e.target===e.currentTarget)onClose()}}>
-      <div className="mdl">{children}</div>
+    <div className={`mov on ${className}`.trim()} onClick={e=>{if(e.target===e.currentTarget)onClose()}}>
+      <div className={`mdl ${panelClassName}`.trim()}>{children}</div>
     </div>
+  )
+}
+export function DetailModal({ open, onClose, title, subtitle, actions, children, size='lg' }) {
+  if (!open) return null
+  return (
+    <Modal open={open} onClose={onClose} className="detail-modal-shell" panelClassName={`detail-modal detail-${size}`}>
+      <div className="detail-head">
+        <div>
+          <div className="detail-kicker">Saved Record</div>
+          <div className="detail-title">{title}</div>
+          {subtitle && <div className="detail-sub">{subtitle}</div>}
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          {actions}
+          <button className="dc detail-close" onClick={onClose}>×</button>
+        </div>
+      </div>
+      <div className="detail-body">{children}</div>
+    </Modal>
   )
 }
 export function ConfirmModal({ open, onClose, onConfirm, title, message, confirmLabel='Delete', danger=true }) {

@@ -5,7 +5,7 @@ import { useAuth } from '../auth/AuthContext'
 import { useToast } from '../hooks/useToast'
 import { exportRowsAsCsv } from '../utils/csv'
 import { uid, today, ts, money, statusVariant, REPS, REP_COLORS, owedBalance } from '../utils/helpers'
-import { PageHeader, Pills, Card, CardBody, Table, Badge, RepBadge, Button, Drawer, Field, Input, Select, NotifBell, ConfirmModal, Modal } from '../components/ui'
+import { PageHeader, Pills, Card, CardBody, Table, Badge, RepBadge, Button, Drawer, Field, Input, Select, NotifBell, ConfirmModal, Modal, DetailModal } from '../components/ui'
 
 const PRODUCTS = ['50KG Cylinder', '14.5KG Cylinder', '12.5KG Cylinder', '6KG Cylinder', '3KG Cylinder', 'Bulk LPG', 'Autogas']
 const CUST_TYPES = ['Commercial', 'B2B']
@@ -32,6 +32,7 @@ export default function Commercial() {
   const [b2bSearch, setB2bSearch] = useState('')
   const [delConfirm, setDelConfirm] = useState(null)
   const [newCustModal, setNewCustModal] = useState(null)
+  const [detailView, setDetailView] = useState(null)
 
   const todaysOrders = useMemo(() => db.orders.filter(order => (order.date || '') === today()), [db.orders])
   const pendingToday = todaysOrders.filter(order => order.status === 'Awaiting Ops Review').length
@@ -163,7 +164,7 @@ export default function Commercial() {
             <Table
               columns={['Order ID', 'Customer', 'Product', 'Qty', 'Total', 'Placed By', 'Date', 'Status', '']}
               rows={todaysOrders.map(order => [
-                <span style={{ fontSize: 11, color: 'var(--a)', fontFamily: 'monospace' }}>{order.id}</span>,
+                <button type="button" className="detail-action-link" onClick={() => setDetailView({ type: 'order', record: order })}><span style={{ fontSize: 11, color: 'var(--a)', fontFamily: 'monospace' }}>{order.id}</span></button>,
                 order.customer || '-',
                 order.product || '-',
                 order.qty || '-',
@@ -210,7 +211,7 @@ export default function Commercial() {
             <Table
               columns={['Order ID', 'Customer', 'Product', 'Qty', 'Total', 'Placed By', 'Date', 'Status', '']}
               rows={filteredHistory.map(order => [
-                <span style={{ fontSize: 11, color: 'var(--a)', fontFamily: 'monospace' }}>{order.id}</span>,
+                <button type="button" className="detail-action-link" onClick={() => setDetailView({ type: 'order', record: order })}><span style={{ fontSize: 11, color: 'var(--a)', fontFamily: 'monospace' }}>{order.id}</span></button>,
                 order.customer || '-',
                 order.product || '-',
                 order.qty || '-',
@@ -261,7 +262,7 @@ export default function Commercial() {
             <Table
               columns={['ID', 'Name', 'Type', 'Region', 'Contact', 'GPS', 'Acct Mgr', 'Status', '']}
               rows={filteredCustomers.map(customer => [
-                <span style={{ fontSize: 11, color: 'var(--m)', fontFamily: 'monospace' }}>{customer.id}</span>,
+                <button type="button" className="detail-action-link" onClick={() => setDetailView({ type: 'customer', record: customer })}><span style={{ fontSize: 11, color: 'var(--m)', fontFamily: 'monospace' }}>{customer.id}</span></button>,
                 customer.name || '-',
                 normalizeCustomerType(customer.type) || '-',
                 customer.region || '-',
@@ -319,7 +320,7 @@ export default function Commercial() {
             <Table
               columns={['Date', 'Customer', 'Volume', 'BDC', 'Depot', 'Order Number', 'Vehicle Number', 'Price', 'Total Cost', 'Transit', '']}
               rows={filteredB2b.map(entry => [
-                entry.date || '-',
+                <button type="button" className="detail-action-link" onClick={() => setDetailView({ type: 'b2b', record: entry })}>{entry.date || '-'}</button>,
                 entry.customerName || '-',
                 entry.volume || '-',
                 entry.bdc || '-',
@@ -357,7 +358,7 @@ export default function Commercial() {
             <Table
               columns={['ID', 'Product', 'Category', 'Unit', 'Price (GHs)', 'Updated', '']}
               rows={db.prices.map(price => [
-                <span style={{ fontSize: 11, color: 'var(--m)', fontFamily: 'monospace' }}>{price.id}</span>,
+                <button type="button" className="detail-action-link" onClick={() => setDetailView({ type: 'price', record: price })}><span style={{ fontSize: 11, color: 'var(--m)', fontFamily: 'monospace' }}>{price.id}</span></button>,
                 price.product || '-',
                 price.category || '-',
                 price.unit || '-',
@@ -381,6 +382,7 @@ export default function Commercial() {
       <B2BDrawer open={b2bOpen} onClose={() => setB2bOpen(false)} dispatch={dispatch} toast={toast} customers={db.customers} />
       <PriceDrawer open={priceOpen} onClose={() => setPriceOpen(false)} dispatch={dispatch} toast={toast} />
       {editPrice && <EditPriceDrawer price={editPrice} onClose={() => setEditPrice(null)} dispatch={dispatch} toast={toast} />}
+      <CommercialDetailModal detailView={detailView} onClose={() => setDetailView(null)} />
 
       {newCustModal && (
         <NewCustomerModal
@@ -402,6 +404,140 @@ export default function Commercial() {
       )}
 
       <ConfirmModal open={!!delConfirm} onClose={() => setDelConfirm(null)} onConfirm={doDelete} title="Confirm Delete" message="This record will be permanently deleted." />
+    </div>
+  )
+}
+
+function CommercialDetailModal({ detailView, onClose }) {
+  if (!detailView) return null
+  const { type, record } = detailView
+
+  if (type === 'order') {
+    const summary = summarizeCommercialExchange(record.exchangeBreakdown || [])
+    return (
+      <DetailModal open onClose={onClose} title={`Order ${record.id}`} subtitle={`${record.customer || 'Unknown customer'} · ${record.status || 'Awaiting Ops Review'}`}>
+        <div className="detail-grid">
+          {[
+            ['Customer', record.customer || '—'],
+            ['Channel', record.channel || 'Commercial'],
+            ['Placed By', record.placedBy || '—'],
+            ['Product', record.product || '—'],
+            ['Quantity', record.qty || '—'],
+            ['Unit Price', record.unitPrice ? money(record.unitPrice) : '—'],
+            ['Date', record.date || '—'],
+            ['Delivery Date', record.deliveryDate || '—'],
+            ['Order Total', record.qty && record.unitPrice ? money(Number(record.qty) * Number(record.unitPrice)) : '—'],
+          ].map(([label, value]) => <CommercialDetailItem key={label} label={label} value={value} />)}
+        </div>
+        {summary.points.length > 0 && (
+          <>
+            <CommercialDetailSection title="Exchange Points">
+              <div className="detail-list">
+                {summary.points.map((point, index) => (
+                  <div key={index} className="detail-card">
+                    <div className="detail-value">{point.exchangePointName || 'Unnamed exchange point'}</div>
+                    <div style={{ marginTop: 8, display:'flex', gap:8, flexWrap:'wrap' }}>
+                      {(point.items || []).map((item, itemIndex) => <span key={itemIndex} className="detail-chip">{item.type} · {item.qty}</span>)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CommercialDetailSection>
+            <CommercialDetailSection title="Totals by Cylinder Size">
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                {summary.totals.map(item => <span key={item.type} className="detail-chip">{item.type} · {item.qty}</span>)}
+              </div>
+            </CommercialDetailSection>
+          </>
+        )}
+        {record.notes && <CommercialDetailSection title="Notes"><div className="detail-value" style={{ fontWeight:600 }}>{record.notes}</div></CommercialDetailSection>}
+      </DetailModal>
+    )
+  }
+
+  if (type === 'customer') {
+    return (
+      <DetailModal open onClose={onClose} title={record.name || record.id} subtitle={`${record.type || 'Customer'} · ${record.region || 'No region'}`} size="sm">
+        <div className="detail-grid">
+          {[
+            ['Customer ID', record.id || '—'],
+            ['Type', record.type || '—'],
+            ['Region', record.region || '—'],
+            ['Contact', record.contact || '—'],
+            ['GPS', record.gps || '—'],
+            ['Account Manager', record.rep || '—'],
+            ['Status', record.status || 'Active'],
+          ].map(([label, value]) => <CommercialDetailItem key={label} label={label} value={value} />)}
+        </div>
+      </DetailModal>
+    )
+  }
+
+  if (type === 'b2b') {
+    return (
+      <DetailModal open onClose={onClose} title={`B2B ${record.orderNumber || record.id}`} subtitle={`${record.customerName || 'Unknown customer'} · ${record.date || '—'}`}>
+        <div className="detail-grid">
+          {[
+            ['Customer', record.customerName || '—'],
+            ['Date', record.date || '—'],
+            ['Volume', record.volume || '—'],
+            ['BDC', record.bdc || '—'],
+            ['Depot', record.depot || '—'],
+            ['Vehicle Number', record.vehicleNumber || '—'],
+            ['Price', record.price ? money(record.price) : '—'],
+            ['Total Cost', money(record.totalCost || Number(record.price || 0) * Number(record.volume || 0))],
+            ['Volume in Transit', record.volumeInTransit || '—'],
+          ].map(([label, value]) => <CommercialDetailItem key={label} label={label} value={value} />)}
+        </div>
+      </DetailModal>
+    )
+  }
+
+  if (type === 'price') {
+    return (
+      <DetailModal open onClose={onClose} title={record.product || record.id} subtitle={`${record.category || 'Price record'} · ${record.unit || 'No unit'}`} size="sm">
+        <div className="detail-grid">
+          {[
+            ['Price ID', record.id || '—'],
+            ['Product', record.product || '—'],
+            ['Category', record.category || '—'],
+            ['Unit', record.unit || '—'],
+            ['Price', record.price ? money(record.price) : '—'],
+            ['Updated', record.updatedAt || '—'],
+          ].map(([label, value]) => <CommercialDetailItem key={label} label={label} value={value} />)}
+        </div>
+      </DetailModal>
+    )
+  }
+
+  return null
+}
+
+function summarizeCommercialExchange(rows = []) {
+  const totals = new Map()
+  rows.forEach(point => {
+    ;(point.items || []).forEach(item => {
+      const key = item.type || 'Unknown'
+      totals.set(key, (totals.get(key) || 0) + Number(item.qty || 0))
+    })
+  })
+  return { points: rows, totals: Array.from(totals.entries()).map(([type, qty]) => ({ type, qty })) }
+}
+
+function CommercialDetailSection({ title, children }) {
+  return (
+    <div className="detail-section">
+      <div className="detail-section-head"><div className="detail-section-title">{title}</div></div>
+      <div className="detail-section-body">{children}</div>
+    </div>
+  )
+}
+
+function CommercialDetailItem({ label, value }) {
+  return (
+    <div className="detail-card">
+      <div className="detail-label">{label}</div>
+      <div className="detail-value">{value}</div>
     </div>
   )
 }

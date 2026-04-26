@@ -4,7 +4,7 @@ import { useApp } from '../context/AppContext'
 import { useToast } from '../hooks/useToast'
 import { exportRowsAsCsv } from '../utils/csv'
 import { uid, today, ts, money, statusVariant, REPS, REP_COLORS, owedBalance, HOLDING_CYLS, WINNEBA_CYLS, calcHoldingClosing, calcWcdClosing, calcEpClosing } from '../utils/helpers'
-import { PageHeader, Pills, Card, CardBody, CardHeader, Table, Badge, RepBadge, Button, Drawer, Field, Input, Select, EmptyState, ConfirmModal, KpiCard } from '../components/ui'
+import { PageHeader, Pills, Card, CardBody, CardHeader, Table, Badge, RepBadge, Button, Drawer, Field, Input, Select, EmptyState, ConfirmModal, KpiCard, DetailModal } from '../components/ui'
 
 const CYL_ITEMS = ['50KG Cylinder','14.5KG Cylinder','12.5KG Cylinder','6KG Cylinder','3KG Cylinder','Bulk LPG','Autogas','Other']
 
@@ -28,6 +28,7 @@ export default function Operations() {
   const [delFilterDate, setDelFilterDate] = useState('')
   const [deliveredSearch, setDeliveredSearch] = useState('')
   const [delConfirm, setDelConfirm]       = useState(null)
+  const [detailView, setDetailView]       = useState(null)
   const [stockOpen, setStockOpen]         = useState(false)
   const [delOpen, setDelOpen]             = useState(false)
   const [supOpen, setSupOpen]             = useState(false)
@@ -113,8 +114,8 @@ export default function Operations() {
                     {/* Card header */}
                     <div style={{background:riskHigh?'#FEF2F2':riskMed?'#FFFBEB':'#EDFAF4', padding:'12px 16px', borderBottom:'1.5px solid var(--b)', display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8}}>
                       <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-                        <span style={{fontSize:11,color:'var(--a)',fontFamily:'monospace',fontWeight:700}}>{o.id}</span>
-                        <span style={{fontWeight:700,fontSize:14}}>{o.customer||'—'}</span>
+                        <button type="button" className="detail-action-link" onClick={()=>setDetailView({ type:'order', record:o })}><span style={{fontSize:11,color:'var(--a)',fontFamily:'monospace',fontWeight:700}}>{o.id}</span></button>
+                        <button type="button" className="detail-action-link" onClick={()=>setDetailView({ type:'order', record:o })}><span style={{fontWeight:700,fontSize:14}}>{o.customer||'—'}</span></button>
                         <RepBadge name={o.placedBy} colors={REP_COLORS} />
                         <Badge variant={statusVariant(o.status)}>{o.status}</Badge>
                       </div>
@@ -150,6 +151,7 @@ export default function Operations() {
                       {/* Order details */}
                       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(140px,1fr))',gap:10}}>
                         {[
+                          ['Channel',             o.channel||'Commercial'],
                           ['Product',             o.product||'—'],
                           ['Quantity',            o.qty||'—'],
                           ['Unit Price',          o.unitPrice ? money(o.unitPrice) : '—'],
@@ -163,6 +165,11 @@ export default function Operations() {
                           </div>
                         ))}
                       </div>
+                      {Array.isArray(o.exchangeBreakdown) && o.exchangeBreakdown.length > 0 && (
+                        <div className="ibar ib" style={{marginTop:12,marginBottom:0}}>
+                          <span><strong>Exchange point breakdown available.</strong> Click the order ID or customer name for the full point-by-point item view.</span>
+                        </div>
+                      )}
                       {o.notes && (
                         <div className="ibar ib" style={{marginTop:12,marginBottom:0}}>
                           <span>📝</span><span><strong>Notes:</strong> {o.notes}</span>
@@ -187,7 +194,7 @@ export default function Operations() {
                   rows={act.map(o=>{
                     const ot=o.qty&&o.unitPrice?o.qty*o.unitPrice:0
                     return [
-                      <span style={{fontSize:11,color:'var(--a)',fontFamily:'monospace'}}>{o.id}</span>,
+                      <button type="button" className="detail-action-link" onClick={()=>setDetailView({ type:'order', record:o })}><span style={{fontSize:11,color:'var(--a)',fontFamily:'monospace'}}>{o.id}</span></button>,
                       o.customer||'—', o.product||'—', o.qty||'—', ot?money(ot):'—',
                       <RepBadge name={o.placedBy} colors={REP_COLORS} />,
                       <Badge variant={statusVariant(o.status)}>{o.status}</Badge>,
@@ -226,7 +233,7 @@ export default function Operations() {
                     <Table
                       columns={['Order ID','Customer','Product','Qty','Value','Placed By','Invoice','Delivered']}
                       rows={filteredLog.map(e=>[
-                        <span style={{fontSize:11,color:'var(--a)',fontFamily:'monospace',fontWeight:600}}>{e.orderId}</span>,
+                        <button type="button" className="detail-action-link" onClick={()=>setDetailView({ type:'delivered', record:e })}><span style={{fontSize:11,color:'var(--a)',fontFamily:'monospace',fontWeight:600}}>{e.orderId}</span></button>,
                         <span style={{fontWeight:600}}>{e.customer}</span>,
                         e.product||'—', e.qty||'—',
                         <span style={{fontWeight:700,color:'var(--g)'}}>{e.value?money(e.value):'—'}</span>,
@@ -258,7 +265,7 @@ export default function Operations() {
           <Table
             columns={['ID','Order Ref','Driver','Truck','Destination','ETA','Status','']}
             rows={db.deliveries.map(d=>[
-              <span style={{fontSize:11,color:'var(--a)',fontFamily:'monospace'}}>{d.id}</span>,
+              <button type="button" className="detail-action-link" onClick={()=>setDetailView({ type:'delivery', record:d })}><span style={{fontSize:11,color:'var(--a)',fontFamily:'monospace'}}>{d.id}</span></button>,
               d.orderRef||'—', d.driver||'—', d.truck||'—', d.destination||'—', d.eta||'—',
               <Badge variant={dbv(d.status)}>{d.status||'Scheduled'}</Badge>,
               <div style={{display:'flex',gap:4}}>
@@ -276,7 +283,7 @@ export default function Operations() {
           <Table
             columns={['ID','Name','Product','Contact','Location','Status','']}
             rows={db.suppliers.map(s=>[
-              <span style={{fontSize:11,color:'var(--m)',fontFamily:'monospace'}}>{s.id}</span>,
+              <button type="button" className="detail-action-link" onClick={()=>setDetailView({ type:'supplier', record:s })}><span style={{fontSize:11,color:'var(--m)',fontFamily:'monospace'}}>{s.id}</span></button>,
               s.name||'—', s.product||'—', s.contact||'—', s.location||'—',
               <Badge variant={s.status==='Active'?'success':'neutral'}>{s.status||'Active'}</Badge>,
               <Button variant="ghost" size="sm" onClick={()=>setDelConfirm({key:'suppliers',id:s.id})}>Del</Button>,
@@ -291,12 +298,183 @@ export default function Operations() {
       <StockDrawer  open={stockOpen} onClose={()=>setStockOpen(false)} dispatch={dispatch} toast={toast} />
       <DelivDrawer  open={delOpen}   onClose={()=>setDelOpen(false)}   dispatch={dispatch} toast={toast} />
       <SupDrawer    open={supOpen}   onClose={()=>setSupOpen(false)}   dispatch={dispatch} toast={toast} />
+      <OperationsDetailModal detailView={detailView} onClose={()=>setDetailView(null)} orders={db.orders} />
       <ConfirmModal open={!!delConfirm} onClose={()=>setDelConfirm(null)} onConfirm={doDelete} title="Confirm Delete" message="This record will be permanently deleted." />
     </div>
   )
 }
 
 // ── Delivery Item Builder ─────────────────────────────────────
+function OperationsDetailModal({ detailView, onClose, orders }) {
+  if (!detailView) return null
+  const { type, record } = detailView
+  const linkedOrder = type === 'delivered' ? orders.find(order => order.id === record.orderId) : null
+
+  if (type === 'order') {
+    const summary = summarizeExchangeBreakdown(record.exchangeBreakdown || [])
+    return (
+      <DetailModal open onClose={onClose} title={`Order ${record.id}`} subtitle={`${record.customer || 'Unknown customer'} · ${record.status || 'Awaiting Ops Review'}`}>
+        <div className="detail-grid">
+          {[
+            ['Customer', record.customer || '—'],
+            ['Channel', record.channel || 'Commercial'],
+            ['Placed By', record.placedBy || '—'],
+            ['Date', record.date || '—'],
+            ['Delivery Date', record.deliveryDate || '—'],
+            ['Product', record.product || '—'],
+            ['Quantity', record.qty || '—'],
+            ['Unit Price', record.unitPrice ? money(record.unitPrice) : '—'],
+            ['Order Total', record.qty && record.unitPrice ? money(Number(record.qty) * Number(record.unitPrice)) : '—'],
+          ].map(([label, value]) => <OpsDetailItem key={label} label={label} value={value} />)}
+        </div>
+        {summary.points.length > 0 && (
+          <>
+            <OpsDetailSection title="Exchange Points">
+              <div className="detail-list">
+                {summary.points.map((point, index) => (
+                  <div key={index} className="detail-card">
+                    <div className="detail-value">{point.exchangePointName || 'Unnamed exchange point'}</div>
+                    <div style={{ marginTop: 8, display:'flex', gap:8, flexWrap:'wrap' }}>
+                      {(point.items || []).map((item, itemIndex) => <span key={itemIndex} className="detail-chip">{item.type} · {item.qty}</span>)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </OpsDetailSection>
+            <OpsDetailSection title="Totals by Cylinder Size">
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                {summary.totals.map(item => <span key={item.type} className="detail-chip">{item.type} · {item.qty}</span>)}
+              </div>
+            </OpsDetailSection>
+          </>
+        )}
+        {record.notes && <OpsDetailSection title="Notes"><div className="detail-value" style={{ fontWeight:600 }}>{record.notes}</div></OpsDetailSection>}
+      </DetailModal>
+    )
+  }
+
+  if (type === 'delivered') {
+    return (
+      <DetailModal open onClose={onClose} title={`Delivered ${record.orderId}`} subtitle={`${record.customer || 'Unknown customer'} · ${record.deliveredAt || '—'}`}>
+        <div className="detail-grid">
+          {[
+            ['Customer', record.customer || '—'],
+            ['Product', record.product || '—'],
+            ['Quantity', record.qty || '—'],
+            ['Value', record.value ? money(record.value) : '—'],
+            ['Placed By', record.placedBy || '—'],
+            ['Invoice ID', record.invoiceId || '—'],
+            ['Delivered At', record.deliveredAt || '—'],
+          ].map(([label, value]) => <OpsDetailItem key={label} label={label} value={value} />)}
+        </div>
+        {linkedOrder && Array.isArray(linkedOrder.exchangeBreakdown) && linkedOrder.exchangeBreakdown.length > 0 && (
+          <OpsDetailSection title="Original Exchange Point Breakdown">
+            <div className="detail-list">
+              {linkedOrder.exchangeBreakdown.map((point, index) => (
+                <div key={index} className="detail-card">
+                  <div className="detail-value">{point.exchangePointName || 'Unnamed exchange point'}</div>
+                  <div style={{ marginTop: 8, display:'flex', gap:8, flexWrap:'wrap' }}>
+                    {(point.items || []).map((item, itemIndex) => <span key={itemIndex} className="detail-chip">{item.type} · {item.qty}</span>)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </OpsDetailSection>
+        )}
+      </DetailModal>
+    )
+  }
+
+  if (type === 'delivery') {
+    return (
+      <DetailModal open onClose={onClose} title={`Delivery ${record.id}`} subtitle={`${record.destination || 'No destination'} · ${record.status || 'Scheduled'}`}>
+        <div className="detail-grid">
+          {[
+            ['Order Ref', record.orderRef || '—'],
+            ['Driver', record.driver || '—'],
+            ['Truck', record.truck || '—'],
+            ['Destination', record.destination || '—'],
+            ['Status', record.status || 'Scheduled'],
+            ['Date', record.date || '—'],
+          ].map(([label, value]) => <OpsDetailItem key={label} label={label} value={value} />)}
+        </div>
+        {(record.exchangePoints || []).length > 0 && (
+          <OpsDetailSection title="Exchange Points">
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+              {record.exchangePoints.map(point => <span key={point} className="detail-chip">{point}</span>)}
+            </div>
+          </OpsDetailSection>
+        )}
+        <OpsDetailSection title="Delivery Items">
+          {(record.items || []).length ? (
+            <div className="detail-list">
+              {record.items.map(item => (
+                <div key={item.id} className="detail-card">
+                  <div className="detail-value">{item.type || '—'}</div>
+                  <div style={{ marginTop: 8, display:'flex', gap:8, flexWrap:'wrap' }}>
+                    <span className="detail-chip">Qty: {item.qty || 0}</span>
+                    {item.bulkDesc && <span className="detail-chip">{item.bulkDesc}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : <div style={{background:'var(--bg)',borderRadius:8,padding:'12px 14px',fontSize:12,color:'var(--m)',textAlign:'center'}}>No delivery items recorded.</div>}
+        </OpsDetailSection>
+      </DetailModal>
+    )
+  }
+
+  if (type === 'supplier') {
+    return (
+      <DetailModal open onClose={onClose} title={record.name || record.id} subtitle={`${record.product || 'Supplier'} · ${record.status || 'Active'}`} size="sm">
+        <div className="detail-grid">
+          {[
+            ['Supplier ID', record.id || '—'],
+            ['Product / Service', record.product || '—'],
+            ['Contact', record.contact || '—'],
+            ['Location', record.location || '—'],
+            ['Status', record.status || 'Active'],
+          ].map(([label, value]) => <OpsDetailItem key={label} label={label} value={value} />)}
+        </div>
+      </DetailModal>
+    )
+  }
+
+  return null
+}
+
+function summarizeExchangeBreakdown(rows = []) {
+  const totals = new Map()
+  rows.forEach(point => {
+    ;(point.items || []).forEach(item => {
+      const key = item.type || 'Unknown'
+      totals.set(key, (totals.get(key) || 0) + Number(item.qty || 0))
+    })
+  })
+  return {
+    points: rows,
+    totals: Array.from(totals.entries()).map(([type, qty]) => ({ type, qty })),
+  }
+}
+
+function OpsDetailSection({ title, children }) {
+  return (
+    <div className="detail-section">
+      <div className="detail-section-head"><div className="detail-section-title">{title}</div></div>
+      <div className="detail-section-body">{children}</div>
+    </div>
+  )
+}
+
+function OpsDetailItem({ label, value }) {
+  return (
+    <div className="detail-card">
+      <div className="detail-label">{label}</div>
+      <div className="detail-value">{value}</div>
+    </div>
+  )
+}
+
 function DelivItemBuilder({ items, setItems }) {
   function addItem() { setItems(p=>[...p,{id:uid('DI'),type:'',isBulk:false,bulkDesc:'',qty:1}]) }
   function remove(id) { setItems(p=>p.filter(it=>it.id!==id)) }
@@ -1000,7 +1178,7 @@ function StockDrawer({ open, onClose, dispatch, toast }) {
   )
 }
 
-function LocationField({ mode, selectedPoint, setSelectedPoint, register, locationOptions }) {
+function LocationField({ mode, selectedPoints, setSelectedPoints, register, locationOptions }) {
   return (
     <>
       <Field label="Delivery Location">
@@ -1011,16 +1189,16 @@ function LocationField({ mode, selectedPoint, setSelectedPoint, register, locati
         </Select>
       </Field>
       {mode === 'exchange_points' ? (
-        <Field label="Select Exchange Point">
+        <Field label="Select Exchange Points">
           <select
-            value={selectedPoint}
-            onChange={event => setSelectedPoint(event.target.value)}
-            style={{width:'100%',border:'1.5px solid var(--b)',borderRadius:8,padding:'9px 11px',fontSize:13,outline:'none',background:'#fff',fontFamily:'inherit'}}
+            multiple
+            value={selectedPoints}
+            onChange={event => setSelectedPoints(Array.from(event.target.selectedOptions, option => option.value))}
+            style={{width:'100%',minHeight:120,border:'1.5px solid var(--b)',borderRadius:8,padding:'9px 11px',fontSize:13,outline:'none',background:'#fff',fontFamily:'inherit'}}
           >
-            <option value="">Select exchange point…</option>
             {locationOptions.map(option => <option key={option} value={option}>{option}</option>)}
           </select>
-          <div className="hint">Choose the exchange point destination from the list.</div>
+          <div className="hint">Hold `Ctrl` to select multiple exchange points from the list.</div>
         </Field>
       ) : mode === 'crm_dtd' ? (
         <Field label="Selected Location">
@@ -1041,20 +1219,20 @@ function DelivDrawer({ open, onClose, dispatch, toast }) {
   const locationOptions = epLocations.map(ep => `${ep.name}${ep.location ? ` - ${ep.location}` : ''}`)
   const { register, handleSubmit, reset, watch } = useForm({ defaultValues: { locationType:'crm_dtd' } })
   const [items, setItems] = useState([])
-  const [selectedPoint, setSelectedPoint] = useState('')
+  const [selectedPoints, setSelectedPoints] = useState([])
   const locationMode = watch('locationType', 'crm_dtd')
   async function onSubmit(d) {
-    const destination = locationMode === 'crm_dtd' ? 'CRM-DTD' : locationMode === 'exchange_points' ? selectedPoint : d.destination
+    const destination = locationMode === 'crm_dtd' ? 'CRM-DTD' : locationMode === 'exchange_points' ? selectedPoints.join(' | ') : d.destination
     if (!destination) { toast('error','Destination required.'); return }
     try {
       await dispatch({ type:'DB_INSERT', key:'deliveries', record:{
         id:uid('DEL'), date:today(),
         orderRef:d.orderRef, driver:d.driver, truck:d.truck,
         destination,
-        exchangePoints: locationMode === 'exchange_points' && selectedPoint ? [selectedPoint] : [],
+        exchangePoints: locationMode === 'exchange_points' ? selectedPoints : [],
         status:d.status||'Scheduled', items,
       }})
-      toast('success','Delivery added.'); reset({ locationType:'crm_dtd' }); setItems([]); setSelectedPoint(''); onClose()
+      toast('success','Delivery added.'); reset({ locationType:'crm_dtd' }); setItems([]); setSelectedPoints([]); onClose()
     } catch (error) {
       toast('error', error.message || 'Could not add delivery.')
     }
@@ -1067,7 +1245,7 @@ function DelivDrawer({ open, onClose, dispatch, toast }) {
         <Field label="Driver Name"><Input {...register('driver')} placeholder="Full name" /></Field>
         <Field label="Truck Plate"><Input {...register('truck')} placeholder="e.g. GW-421-24" /></Field>
       </div>
-      <LocationField mode={locationMode} selectedPoint={selectedPoint} setSelectedPoint={setSelectedPoint} register={register} locationOptions={locationOptions} />
+      <LocationField mode={locationMode} selectedPoints={selectedPoints} setSelectedPoints={setSelectedPoints} register={register} locationOptions={locationOptions} />
       <Field label="Status"><Select {...register('status')}><option>Scheduled</option><option>Loaded</option><option>En Route</option><option>Delivered</option><option>Failed</option></Select></Field>
       <DelivItemBuilder items={items} setItems={setItems} />
     </Drawer>
