@@ -16,6 +16,30 @@ export function today() {
   }).format(new Date())
 }
 
+export function periodFromDate(value) {
+  if (!value) return ''
+  const [year, month] = String(value).split('-')
+  if (!year || !month) return ''
+  return `${year}-${Number(month)}`
+}
+
+export const LOGISTICS_DISTANCE_RATES = [
+  { distance: 66, rate: 0.23 },
+  { distance: 98, rate: 0.33 },
+  { distance: 118, rate: 0.4 },
+  { distance: 159, rate: 0.53 },
+  { distance: 285, rate: 0.82 },
+  { distance: 299, rate: 0.86 },
+  { distance: 308, rate: 0.87 },
+]
+
+export function rateFromDistance(value, table = LOGISTICS_DISTANCE_RATES) {
+  const distance = Number(value)
+  if (!Number.isFinite(distance)) return null
+  const exact = table.find(item => Number(item.distance) === distance)
+  return exact ? Number(exact.rate) : null
+}
+
 export function ts() {
   return `${today()} ${new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Africa/Accra',

@@ -1000,7 +1000,7 @@ function StockDrawer({ open, onClose, dispatch, toast }) {
   )
 }
 
-function LocationField({ mode, selectedPoints, setSelectedPoints, register, locationOptions }) {
+function LocationField({ mode, selectedPoint, setSelectedPoint, register, locationOptions }) {
   return (
     <>
       <Field label="Delivery Location">
@@ -1011,16 +1011,16 @@ function LocationField({ mode, selectedPoints, setSelectedPoints, register, loca
         </Select>
       </Field>
       {mode === 'exchange_points' ? (
-        <Field label="Select Exchange Points">
+        <Field label="Select Exchange Point">
           <select
-            multiple
-            value={selectedPoints}
-            onChange={event => setSelectedPoints(Array.from(event.target.selectedOptions, option => option.value))}
-            style={{width:'100%',minHeight:120,border:'1.5px solid var(--b)',borderRadius:8,padding:'9px 11px',fontSize:13,outline:'none',background:'#fff',fontFamily:'inherit'}}
+            value={selectedPoint}
+            onChange={event => setSelectedPoint(event.target.value)}
+            style={{width:'100%',border:'1.5px solid var(--b)',borderRadius:8,padding:'9px 11px',fontSize:13,outline:'none',background:'#fff',fontFamily:'inherit'}}
           >
+            <option value="">Select exchange point…</option>
             {locationOptions.map(option => <option key={option} value={option}>{option}</option>)}
           </select>
-          <div className="hint">Hold `Ctrl` to select multiple exchange points.</div>
+          <div className="hint">Choose the exchange point destination from the list.</div>
         </Field>
       ) : mode === 'crm_dtd' ? (
         <Field label="Selected Location">
@@ -1041,20 +1041,20 @@ function DelivDrawer({ open, onClose, dispatch, toast }) {
   const locationOptions = epLocations.map(ep => `${ep.name}${ep.location ? ` - ${ep.location}` : ''}`)
   const { register, handleSubmit, reset, watch } = useForm({ defaultValues: { locationType:'crm_dtd' } })
   const [items, setItems] = useState([])
-  const [selectedPoints, setSelectedPoints] = useState([])
+  const [selectedPoint, setSelectedPoint] = useState('')
   const locationMode = watch('locationType', 'crm_dtd')
   async function onSubmit(d) {
-    const destination = locationMode === 'crm_dtd' ? 'CRM-DTD' : locationMode === 'exchange_points' ? selectedPoints.join(' | ') : d.destination
+    const destination = locationMode === 'crm_dtd' ? 'CRM-DTD' : locationMode === 'exchange_points' ? selectedPoint : d.destination
     if (!destination) { toast('error','Destination required.'); return }
     try {
       await dispatch({ type:'DB_INSERT', key:'deliveries', record:{
         id:uid('DEL'), date:today(),
         orderRef:d.orderRef, driver:d.driver, truck:d.truck,
         destination,
-        exchangePoints: locationMode === 'exchange_points' ? selectedPoints : [],
+        exchangePoints: locationMode === 'exchange_points' && selectedPoint ? [selectedPoint] : [],
         status:d.status||'Scheduled', items,
       }})
-      toast('success','Delivery added.'); reset({ locationType:'crm_dtd' }); setItems([]); setSelectedPoints([]); onClose()
+      toast('success','Delivery added.'); reset({ locationType:'crm_dtd' }); setItems([]); setSelectedPoint(''); onClose()
     } catch (error) {
       toast('error', error.message || 'Could not add delivery.')
     }
@@ -1067,7 +1067,7 @@ function DelivDrawer({ open, onClose, dispatch, toast }) {
         <Field label="Driver Name"><Input {...register('driver')} placeholder="Full name" /></Field>
         <Field label="Truck Plate"><Input {...register('truck')} placeholder="e.g. GW-421-24" /></Field>
       </div>
-      <LocationField mode={locationMode} selectedPoints={selectedPoints} setSelectedPoints={setSelectedPoints} register={register} locationOptions={locationOptions} />
+      <LocationField mode={locationMode} selectedPoint={selectedPoint} setSelectedPoint={setSelectedPoint} register={register} locationOptions={locationOptions} />
       <Field label="Status"><Select {...register('status')}><option>Scheduled</option><option>Loaded</option><option>En Route</option><option>Delivered</option><option>Failed</option></Select></Field>
       <DelivItemBuilder items={items} setItems={setItems} />
     </Drawer>

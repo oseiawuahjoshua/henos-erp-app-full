@@ -5,6 +5,16 @@ import { requireAuth } from '../middleware/auth.js'
 const router = express.Router()
 router.use(requireAuth)
 
+const DISTANCE_RATE_TABLE = {
+  66: 0.23,
+  98: 0.33,
+  118: 0.4,
+  159: 0.53,
+  285: 0.82,
+  299: 0.86,
+  308: 0.87,
+}
+
 function requireLogisticsAccess(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated.' })
   const modules = req.user.modules || []
@@ -45,7 +55,8 @@ function normalizeVehicle(body = {}) {
 
 function normalizeLoading(body = {}) {
   const productWeight = toNumberOrZero(body.productWeight)
-  const rate = toNumberOrZero(body.rate)
+  const distance = toNumberOrNull(body.distance)
+  const rate = toNumberOrZero(body.rate) || DISTANCE_RATE_TABLE[Math.round(distance || 0)] || 0
   const fuel = toNumberOrZero(body.fuel)
   const roadExpenses = toNumberOrZero(body.roadExpenses)
   const amountPayable = Number((productWeight * rate * 0.925).toFixed(2))
@@ -55,11 +66,11 @@ function normalizeLoading(body = {}) {
 
   return {
     date: body.date,
-    period: toNumberOrNull(body.period),
+    period: body.period ? String(body.period).trim() : null,
     driver: body.driver ? String(body.driver).trim().toUpperCase() : null,
     productWeight,
     location: body.location ? String(body.location).trim().toUpperCase() : null,
-    distance: toNumberOrNull(body.distance),
+    distance,
     rate,
     amountPayable,
     fuel: toNumberOrNull(body.fuel),
@@ -69,10 +80,24 @@ function normalizeLoading(body = {}) {
   }
 }
 
+function normalizeMaintenance(body = {}) {
+  return {
+    date: body.date,
+    period: body.period ? String(body.period).trim() : null,
+    description: String(body.description || '').trim(),
+    amount: toNumberOrZero(body.amount),
+    vendor: body.vendor ? String(body.vendor).trim().toUpperCase() : null,
+    notes: body.notes ? String(body.notes).trim() : null,
+  }
+}
+
 router.get('/vehicles', requireLogisticsAccess, async (req, res) => {
   try {
     const vehicles = await prisma.logisticsVehicle.findMany({
-      include: { loadings: { orderBy: { date: 'desc' } } },
+      include: {
+        loadings: { orderBy: { date: 'desc' } },
+        maintenance: { orderBy: { date: 'desc' } },
+      },
       orderBy: { createdAt: 'asc' },
     })
     res.json(vehicles)
@@ -140,6 +165,43 @@ router.patch('/loadings/:id', requireLogisticsAccess, async (req, res) => {
 router.delete('/loadings/:id', requireLogisticsAccess, async (req, res) => {
   try {
     await prisma.logisticsLoading.delete({ where: { id: req.params.id } })
+    res.json({ success: true })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+router.post('/maintenance', requireLogisticsAccess, async (req, res) => {
+  try {
+    const { vehicleId, ...rest } = req.body || {}
+    res.status(201).json(await prisma.logisticsMaintenance.create({
+      data: {
+        ...normalizeMaintenance(rest),
+        vehicle: { connect: { id: vehicleId } },
+      },
+    }))
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+router.patch('/maintenance/:id', requireLogisticsAccess, async (req, res) => {
+  try {
+    const { vehicleId, ...rest } = req.body || {}
+    const data = normalizeMaintenance(rest)
+    if (vehicleId) data.vehicle = { connect: { id: vehicleId } }
+    res.json(await prisma.logisticsMaintenance.update({
+      where: { id: req.params.id },
+      data,
+    }))
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+router.delete('/maintenance/:id', requireLogisticsAccess, async (req, res) => {
+  try {
+    await prisma.logisticsMaintenance.delete({ where: { id: req.params.id } })
     res.json({ success: true })
   } catch (e) {
     res.status(500).json({ error: e.message })

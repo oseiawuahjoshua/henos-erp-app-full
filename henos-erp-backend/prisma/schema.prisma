@@ -455,6 +455,7 @@ model LogisticsVehicle {
   createdAt  DateTime          @default(now())
   updatedAt  DateTime          @updatedAt
   loadings   LogisticsLoading[]
+  maintenance LogisticsMaintenance[]
 
   @@map("logistics_vehicles")
 }
@@ -462,7 +463,7 @@ model LogisticsVehicle {
 model LogisticsLoading {
   id                    String           @id @default(cuid())
   date                  String
-  period                Float?
+  period                String?
   driver                String?
   productWeight         Float            @default(0)
   location              String?
@@ -479,6 +480,22 @@ model LogisticsLoading {
   vehicleId             String
 
   @@map("logistics_loadings")
+}
+
+model LogisticsMaintenance {
+  id          String           @id @default(cuid())
+  date        String
+  period      String?
+  description String
+  amount      Float            @default(0)
+  vendor      String?
+  notes       String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  vehicle     LogisticsVehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  vehicleId   String
+
+  @@map("logistics_maintenance")
 }
 
 // ═══════════════════════════════════════════════════════════════

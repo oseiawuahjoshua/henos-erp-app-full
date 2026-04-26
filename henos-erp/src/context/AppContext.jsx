@@ -15,6 +15,7 @@ function createInitialState() {
       suppliers: [],
       logisticsVehicles: [],
       logisticsLoadings: [],
+      logisticsMaintenance: [],
       b2b: [],
       campaigns: [],
       leads: [],
@@ -357,9 +358,15 @@ export function AppProvider({ children }) {
           next.db.logisticsVehicles = vehicles.map(vehicle => ({
             ...vehicle,
             loadings: undefined,
+            maintenance: undefined,
           }))
           next.db.logisticsLoadings = vehicles.flatMap(vehicle => (vehicle.loadings || []).map(loading => ({
             ...loading,
+            vehicleId: vehicle.id,
+            vehicleRef: vehicle.brvNumber,
+          })))
+          next.db.logisticsMaintenance = vehicles.flatMap(vehicle => (vehicle.maintenance || []).map(entry => ({
+            ...entry,
             vehicleId: vehicle.id,
             vehicleRef: vehicle.brvNumber,
           })))
@@ -584,6 +591,10 @@ async function handleInsert(action, state, token, session) {
       action.record = await apiPost('/api/logistics/loadings', normalizeBlankStrings(record), token)
       return
 
+    case 'logisticsMaintenance':
+      action.record = await apiPost('/api/logistics/maintenance', normalizeBlankStrings(record), token)
+      return
+
     case 'campaigns':
       action.record = await apiPost('/api/campaigns', normalizeBlankStrings(record), token)
       return
@@ -660,6 +671,9 @@ async function handleUpdate(action, state, token) {
     case 'logisticsLoadings':
       await apiPatch(`/api/logistics/loadings/${id}`, normalizeBlankStrings(patch), token)
       return
+    case 'logisticsMaintenance':
+      await apiPatch(`/api/logistics/maintenance/${id}`, normalizeBlankStrings(patch), token)
+      return
     case 'campaigns':
       await apiPatch(`/api/campaigns/${id}`, patch, token)
       return
@@ -693,6 +707,7 @@ async function handleDelete(action, token) {
     suppliers: `/api/suppliers/${id}`,
     logisticsVehicles: `/api/logistics/vehicles/${id}`,
     logisticsLoadings: `/api/logistics/loadings/${id}`,
+    logisticsMaintenance: `/api/logistics/maintenance/${id}`,
     campaigns: `/api/campaigns/${id}`,
     leads: `/api/campaigns/leads/${id}`,
     b2b: `/api/b2b/${id}`,
