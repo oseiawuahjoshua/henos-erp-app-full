@@ -1,6 +1,7 @@
 import express from 'express'
 import prisma from '../db.js'
 import { requireAuth, requireModule } from '../middleware/auth.js'
+import { makeBusinessId } from '../utils/ids.js'
 
 const router = express.Router()
 router.use(requireAuth, requireModule('commercial'))
@@ -25,11 +26,22 @@ router.post('/', async (req, res) => {
     const volumeInTransit = rest.volumeInTransit !== undefined && rest.volumeInTransit !== null ? Number(rest.volumeInTransit) : null
     const totalCost = volume !== null && price !== null ? Number((volume * price).toFixed(2)) : null
 
-    const customer = customerId
-      ? await prisma.customer.findUnique({ where: { id: customerId } })
-      : await prisma.customer.findFirst({ where: { name: customerName } })
-
     const result = await prisma.$transaction(async tx => {
+      let customer = customerId
+        ? await tx.customer.findUnique({ where: { id: customerId } })
+        : await tx.customer.findFirst({ where: { name: customerName } })
+
+      if (!customer && customerName) {
+        customer = await tx.customer.create({
+          data: {
+            id: makeBusinessId('customer', customerName),
+            name: customerName,
+            type: 'B2B',
+            status: 'Active',
+          },
+        })
+      }
+
       const entry = await tx.b2BOrder.create({
         data: {
           ...rest,
@@ -38,7 +50,7 @@ router.post('/', async (req, res) => {
           price,
           totalCost,
           volumeInTransit,
-          ...(customer ? { customer: { connect: { id: customer.id } } } : {}),
+          ...(customer ? { customer: { connect: { id: customer.id } }, customerId: customer.id } : {}),
         },
         include: { customer: { select: { id: true, name: true } } },
       })
@@ -47,6 +59,7 @@ router.post('/', async (req, res) => {
       if (customer && totalCost !== null) {
         invoice = await tx.invoice.create({
           data: {
+            id: makeBusinessId('invoice', customer.name),
             amount: totalCost,
             amountPaid: 0,
             status: 'Unpaid',
@@ -70,7 +83,7 @@ router.post('/', async (req, res) => {
         })
       }
 
-      return { entry, invoice }
+      return { entry, invoice, customer }
     })
 
     res.status(201).json(result)

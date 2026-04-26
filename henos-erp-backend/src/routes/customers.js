@@ -1,6 +1,7 @@
 import express from 'express'
 import prisma from '../db.js'
 import { requireAuth, requireModule } from '../middleware/auth.js'
+import { makeBusinessId } from '../utils/ids.js'
 const router = express.Router()
 router.use(requireAuth)
 
@@ -33,7 +34,7 @@ router.get('/', canReadCustomers, async (req, res) => {
 router.post('/', requireModule('commercial'), async (req, res) => {
   try {
     const payload = normalizeCustomerPayload(req.body)
-    const created = await prisma.customer.create({ data: payload })
+    const created = await prisma.customer.create({ data: { ...payload, id: makeBusinessId('customer', payload.name) } })
     res.status(201).json(created)
   }
   catch (e) {

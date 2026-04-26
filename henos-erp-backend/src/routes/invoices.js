@@ -1,6 +1,7 @@
 import express from 'express'
 import prisma from '../db.js'
 import { requireAuth, requireModule } from '../middleware/auth.js'
+import { makeBusinessId } from '../utils/ids.js'
 const router = express.Router()
 router.use(requireAuth, requireModule('accounts'))
 
@@ -26,8 +27,10 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { customerId, items, orderId, createdById, ...rest } = sanitizeInvoicePayload(req.body)
+    const customer = await prisma.customer.findUnique({ where: { id: customerId }, select: { name: true } })
     res.status(201).json(await prisma.invoice.create({
       data: {
+        id: makeBusinessId('invoice', customer?.name || 'INVOICE'),
         ...rest,
         customer: { connect:{id:customerId} },
         ...(orderId ? { order:{connect:{id:orderId}} } : {}),

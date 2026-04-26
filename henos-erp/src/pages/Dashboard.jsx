@@ -34,7 +34,6 @@ export default function Dashboard() {
 
   const modules = [
     { path: '/commercial', label: 'Commercial', detail: 'Orders, pricing, and customers', count: `${db.orders.length} orders`, enabled: canAccess('commercial') },
-    { path: '/crm', label: 'CRM', detail: 'Accounts, opportunities, and follow-ups', count: `${db.customers.length} customers`, enabled: canAccess('crm') },
     { path: '/accounts', label: 'Accounts', detail: 'Invoices, expenses, and balances', count: `${db.invoices.length} invoices`, enabled: canAccess('accounts') },
     { path: '/hr', label: 'HR', detail: 'People, teams, and workforce view', count: `${db.broadcasts.length} updates`, enabled: canAccess('hr') },
     { path: '/updates', label: 'Updates', detail: 'Company-wide notices from managers', count: `${db.broadcasts.length} posts`, enabled: canAccess('updates') },

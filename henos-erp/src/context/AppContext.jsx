@@ -81,6 +81,9 @@ function reduceState(state, action) {
       if (action.key === 'b2b' && action.meta?.invoice) {
         db.invoices = [action.meta.invoice, ...state.db.invoices.filter(invoice => invoice.id !== action.meta.invoice.id)]
       }
+      if (action.key === 'b2b' && action.meta?.customer) {
+        db.customers = [action.meta.customer, ...state.db.customers.filter(customer => customer.id !== action.meta.customer.id)]
+      }
       return { ...state, db }
     }
 
@@ -195,8 +198,14 @@ function reduceState(state, action) {
         ...state,
         stations: state.stations.map(s => {
           if (s.id !== action.stId) return s
-          const stock = [action.record, ...(s.stock || []).filter(r => r.date !== action.record.date)]
-            .sort((a, b) => b.date.localeCompare(a.date))
+          const stock = [
+            action.record,
+            ...(s.stock || []).filter(r => !(r.date === action.record.date && (r.session || 'Opening') === (action.record.session || 'Opening'))),
+          ].sort((a, b) => {
+            if (a.date !== b.date) return b.date.localeCompare(a.date)
+            const rank = { Closing: 0, Opening: 1 }
+            return (rank[a.session || 'Opening'] ?? 9) - (rank[b.session || 'Opening'] ?? 9)
+          })
           return { ...s, stock }
         }),
       }
@@ -269,8 +278,13 @@ function normalizeStation(station) {
     ...station,
     stock: (station.readings || station.stock || []).map(reading => ({
       ...reading,
+      session: reading.session || 'Opening',
       tanks: reading.tanks || [],
-    })),
+    })).sort((a, b) => {
+      if (a.date !== b.date) return b.date.localeCompare(a.date)
+      const rank = { Closing: 0, Opening: 1 }
+      return (rank[a.session || 'Opening'] ?? 9) - (rank[b.session || 'Opening'] ?? 9)
+    }),
     readings: undefined,
   }
 }
@@ -653,8 +667,15 @@ async function handleInsert(action, state, token, session) {
         customerName: customer?.name || record.customerName,
       }, token)
       action.record = result.entry
+      action.meta = {}
       if (result.invoice) {
-        action.meta = { invoice: normalizeInvoice(result.invoice) }
+        action.meta.invoice = normalizeInvoice(result.invoice)
+      }
+      if (result.customer) {
+        action.meta.customer = {
+          ...result.customer,
+          type: result.customer.type || 'B2B',
+        }
       }
       return
     }

@@ -1,6 +1,7 @@
 import express from 'express'
 import prisma from '../db.js'
 import { requireAuth, requireModule } from '../middleware/auth.js'
+import { makeBusinessId } from '../utils/ids.js'
 const router = express.Router()
 router.use(requireAuth)
 
@@ -30,7 +31,9 @@ router.get('/', requireOrderAccess, async (req, res) => {
 router.post('/', requireModule('commercial'), async (req, res) => {
   try {
     const { customerId, placedById, ...rest } = req.body
+    const customer = await prisma.customer.findUnique({ where: { id: customerId }, select: { name: true } })
     const payload = {
+      id: makeBusinessId('order', customer?.name || rest.customer || 'ORDER'),
       ...rest,
       qty: rest.qty !== undefined && rest.qty !== null ? Number(rest.qty) : null,
       unitPrice: rest.unitPrice !== undefined && rest.unitPrice !== null ? Number(rest.unitPrice) : null,
