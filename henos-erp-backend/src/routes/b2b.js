@@ -50,7 +50,7 @@ router.post('/', async (req, res) => {
           price,
           totalCost,
           volumeInTransit,
-          ...(customer ? { customer: { connect: { id: customer.id } }, customerId: customer.id } : {}),
+          ...(customer ? { customer: { connect: { id: customer.id } } } : {}),
         },
         include: { customer: { select: { id: true, name: true } } },
       })
