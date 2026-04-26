@@ -28,6 +28,7 @@ export default function Accounts() {
   const [paymentSearch, setPaymentSearch] = useState('')
   const [balanceSearch, setBalanceSearch] = useState('')
   const [statementCustomer, setStatementCustomer] = useState('')
+  const [statementSearch, setStatementSearch] = useState('')
 
   const invoices = db.invoices || []
   const expenses = db.expenses || []
@@ -78,14 +79,18 @@ export default function Accounts() {
     }
   }
 
-  async function updateExpenseStatus(expense, status) {
-    try {
-      const patch = buildExpenseStatusPatch(expense, status)
-      await dispatch({ type: 'DB_UPDATE', key: 'expenses', id: expense.id, patch })
-      toast('success', `Expense marked as ${status}.`)
-    } catch (error) {
-      toast('error', error.message || 'Could not update expense.')
+  function applyStatementSearch() {
+    const query = String(statementSearch || '').trim()
+    if (!query) {
+      setStatementCustomer(statementOptions[0] || '')
+      return
     }
+    const match = statementOptions.find(option => option.toLowerCase().includes(query.toLowerCase()))
+    if (!match) {
+      toast('error', `Customer "${query}" was not found.`)
+      return
+    }
+    setStatementCustomer(match)
   }
 
   return (
@@ -93,7 +98,7 @@ export default function Accounts() {
       <PageHeader title="Accounts" actions={<>
         <NotifBell notifKey="anotifs" />
         {(tab === 'invoices' || tab === 'statements') && <Button onClick={() => setInvOpen(true)}>+ New Invoice</Button>}
-        {(tab === 'expenses' || tab === 'approvals') && <Button onClick={() => setExpOpen(true)}>+ Log Expense</Button>}
+        {tab === 'expenses' && <Button onClick={() => setExpOpen(true)}>+ Log Expense</Button>}
       </>} />
 
       {unreadA > 0 && (
@@ -117,7 +122,6 @@ export default function Accounts() {
           { id: 'aging', label: 'Aging' },
           { id: 'customers', label: 'Customers' },
           { id: 'expenses', label: 'Expenses' },
-          { id: 'approvals', label: 'Approvals' },
           { id: 'balances', label: 'Balances' },
           { id: 'pl', label: 'P&L' },
         ]}
@@ -199,7 +203,9 @@ export default function Accounts() {
         <CustomerStatementView
           customers={statementOptions}
           customer={selectedStatementCustomer}
-          onCustomerChange={setStatementCustomer}
+          search={statementSearch}
+          onSearchChange={setStatementSearch}
+          onApplySearch={applyStatementSearch}
           statement={statements}
           onPrint={() => printCustomerStatement(statements)}
         />
@@ -267,18 +273,6 @@ export default function Accounts() {
         </CardBody></Card>
       )}
 
-      {tab === 'approvals' && (
-        <ExpenseApprovalsView
-          expenses={expenses}
-          onApprove={expense => updateExpenseStatus(expense, 'Approved')}
-          onReject={expense => {
-            const reason = window.prompt('Reason for rejection (optional):', expense.rejectionReason || '')
-            updateExpenseStatus({ ...expense, rejectionReason: reason || '' }, 'Rejected')
-          }}
-          onPaid={expense => updateExpenseStatus(expense, 'Paid')}
-        />
-      )}
-
       {tab === 'balances' && <BalanceSummary invoices={invoices} search={balanceSearch} onSearchChange={setBalanceSearch} onPrint={() => printBalances(invoices, balanceSearch)} onExport={() => exportBalanceCsv(invoices, balanceSearch)} />}
       {tab === 'pl' && <PLView invoices={invoices} expenses={expenses} payments={payments} />}
 
@@ -303,22 +297,22 @@ function Toolbar({ value, onChange, placeholder, dateValue, onDateChange, showRe
   )
 }
 
-function CustomerStatementView({ customers, customer, onCustomerChange, statement, onPrint }) {
+function CustomerStatementView({ customers, customer, search, onSearchChange, onApplySearch, statement, onPrint }) {
   if (!customers.length) return <EmptyState icon="ST" message="No customers available for statements" />
   return (
     <Card>
       <CardHeader
         title="Customer Statement"
         actions={<>
-          <select value={customer} onChange={event => onCustomerChange(event.target.value)} style={searchStyle}>
-            {customers.map(option => <option key={option} value={option}>{option}</option>)}
-          </select>
+          <input value={search} onChange={event => onSearchChange(event.target.value)} list="statement-customers" placeholder="Search customer..." style={searchStyle} />
+          <datalist id="statement-customers">{customers.map(option => <option key={option} value={option} />)}</datalist>
+          <Button variant="secondary" size="sm" onClick={onApplySearch}>Load Statement</Button>
           <Button variant="secondary" size="sm" onClick={onPrint}>Print Statement</Button>
         </>}
       />
       <CardBody>
         <div className="krow" style={{ marginBottom: 16 }}>
-          <KpiCard label="Total Invoiced" value={money(statement.totalInvoiced)} note={customer} />
+          <KpiCard label="Total Invoiced" value={money(statement.totalInvoiced)} note={customer || 'Selected customer'} />
           <KpiCard label="Total Paid" value={money(statement.totalPaid)} note="Payments register" valueStyle={{ color: 'var(--g)' }} />
           <KpiCard label="Outstanding" value={money(statement.outstanding)} note="Live balance" valueStyle={{ color: statement.outstanding ? 'var(--r)' : 'var(--g)' }} />
           <KpiCard label="Invoices" value={statement.invoices.length} note="Customer activity" />
@@ -771,8 +765,23 @@ function PLView({ invoices, expenses, payments }) {
   const collected = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
   const invoiced = invoices.reduce((sum, invoice) => sum + Number(invoice.amount || 0), 0)
   const outstanding = invoices.reduce((sum, invoice) => sum + getInvoiceBalance(invoice), 0)
+  const totalExpenses = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0)
   const approvedExpenses = expenses.filter(expense => expense.status === 'Approved' || expense.status === 'Paid' || expense.approved).reduce((sum, expense) => sum + Number(expense.amount || 0), 0)
-  const net = collected - approvedExpenses
+  const paidExpenses = expenses.filter(expense => expense.status === 'Paid').reduce((sum, expense) => sum + Number(expense.amount || 0), 0)
+  const net = collected - paidExpenses
+  const expenseByCategory = Object.values(expenses.reduce((acc, expense) => {
+    const key = expense.category || 'Uncategorised'
+    if (!acc[key]) acc[key] = { category: key, total: 0, count: 0 }
+    acc[key].total += Number(expense.amount || 0)
+    acc[key].count += 1
+    return acc
+  }, {})).sort((a, b) => b.total - a.total)
+  const expenseByStatus = ['Pending Approval', 'Approved', 'Rejected', 'Paid'].map(status => ({
+    status,
+    total: expenses.filter(expense => (expense.status || 'Pending Approval') === status).reduce((sum, expense) => sum + Number(expense.amount || 0), 0),
+    count: expenses.filter(expense => (expense.status || 'Pending Approval') === status).length,
+  }))
+  const recentExpenses = expenses.slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))).slice(0, 6)
 
   return (
     <Card>
@@ -783,8 +792,10 @@ function PLView({ invoices, expenses, payments }) {
             { label: 'Total Invoiced', value: money(invoiced) },
             { label: 'Collected', value: money(collected), style: { color: 'var(--g)' } },
             { label: 'Outstanding', value: money(outstanding), style: { color: 'var(--r)' } },
+            { label: 'Recorded Expenses', value: money(totalExpenses), style: { color: 'var(--am)' } },
             { label: 'Approved Expenses', value: money(approvedExpenses), style: { color: 'var(--am)' } },
-            { label: 'Net Position', value: money(net), style: { color: net >= 0 ? 'var(--g)' : 'var(--r)' } },
+            { label: 'Paid Expenses', value: money(paidExpenses), style: { color: 'var(--am)' } },
+            { label: 'Net Cash Position', value: money(net), style: { color: net >= 0 ? 'var(--g)' : 'var(--r)' } },
             { label: 'Payment Entries', value: payments.length },
           ].map(item => (
             <div key={item.label} style={{ background: 'var(--bg)', borderRadius: 8, padding: '12px 14px' }}>
@@ -793,6 +804,52 @@ function PLView({ invoices, expenses, payments }) {
             </div>
           ))}
         </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.1fr .9fr', gap: 16, marginTop: 16 }}>
+          <Card>
+            <CardHeader title="Expense Categories" />
+            <CardBody noPad>
+              <Table
+                columns={['Category', 'Entries', 'Total']}
+                rows={expenseByCategory.map(item => [
+                  <span style={{ fontWeight: 700 }}>{item.category}</span>,
+                  item.count,
+                  money(item.total),
+                ])}
+                empty="No expense data yet"
+              />
+            </CardBody>
+          </Card>
+          <Card>
+            <CardHeader title="Expense Status Summary" />
+            <CardBody noPad>
+              <Table
+                columns={['Status', 'Entries', 'Total']}
+                rows={expenseByStatus.map(item => [
+                  <Badge variant={expenseStatusVariant(item.status)}>{item.status}</Badge>,
+                  item.count,
+                  money(item.total),
+                ])}
+                empty="No expense status data yet"
+              />
+            </CardBody>
+          </Card>
+        </div>
+        <Card style={{ marginTop: 16 }}>
+          <CardHeader title="Recent Recorded Expenses" />
+          <CardBody noPad>
+            <Table
+              columns={['Date', 'Category', 'Description', 'Status', 'Amount']}
+              rows={recentExpenses.map(expense => [
+                expense.date || 'â€”',
+                expense.category || 'â€”',
+                expense.description || 'â€”',
+                <Badge variant={expenseStatusVariant(expense.status)}>{expense.status || 'Pending Approval'}</Badge>,
+                money(expense.amount || 0),
+              ])}
+              empty="No expenses recorded yet"
+            />
+          </CardBody>
+        </Card>
       </CardBody>
     </Card>
   )

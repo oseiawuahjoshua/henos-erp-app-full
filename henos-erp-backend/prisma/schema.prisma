@@ -77,11 +77,13 @@ model Order {
   id           String    @id @default(cuid())
   status       String    @default("Awaiting Ops Review")
   date         String                       // date placed
+  channel      String    @default("Commercial")
   product      String?
   qty          Float?
   unitPrice    Float?
   notes        String?
   deliveryDate String?
+  exchangeBreakdown Json?
   bulkKg       Float?
   approvedAt   String?
   cancelledAt  String?
@@ -432,6 +434,7 @@ model B2BOrder {
   orderNumber     String?
   vehicleNumber   String?
   price           Float?
+  totalCost       Float?
   volumeInTransit Float?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt

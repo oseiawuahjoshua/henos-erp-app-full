@@ -297,8 +297,8 @@ export default function Commercial() {
               size="sm"
               onClick={() => exportRowsAsCsv(
                 'commercial-b2b',
-                ['Date', 'Customer', 'Volume', 'BDC', 'Depot', 'Order Number', 'Vehicle Number', 'Price', 'Volume in Transit'],
-                filteredB2b.map(entry => [entry.date || '', entry.customerName || '', entry.volume || '', entry.bdc || '', entry.depot || '', entry.orderNumber || '', entry.vehicleNumber || '', entry.price || '', entry.volumeInTransit || '']),
+                ['Date', 'Customer', 'Volume', 'BDC', 'Depot', 'Order Number', 'Vehicle Number', 'Price', 'Total Cost', 'Volume in Transit'],
+                filteredB2b.map(entry => [entry.date || '', entry.customerName || '', entry.volume || '', entry.bdc || '', entry.depot || '', entry.orderNumber || '', entry.vehicleNumber || '', entry.price || '', entry.totalCost || Number(entry.price || 0) * Number(entry.volume || 0), entry.volumeInTransit || '']),
               )}
             >
               Export CSV
@@ -317,7 +317,7 @@ export default function Commercial() {
           </div>
           <CardBody noPad>
             <Table
-              columns={['Date', 'Customer', 'Volume', 'BDC', 'Depot', 'Order Number', 'Vehicle Number', 'Price', 'Transit', '']}
+              columns={['Date', 'Customer', 'Volume', 'BDC', 'Depot', 'Order Number', 'Vehicle Number', 'Price', 'Total Cost', 'Transit', '']}
               rows={filteredB2b.map(entry => [
                 entry.date || '-',
                 entry.customerName || '-',
@@ -327,6 +327,7 @@ export default function Commercial() {
                 entry.orderNumber || '-',
                 entry.vehicleNumber || '-',
                 entry.price ? money(entry.price) : '-',
+                entry.totalCost ? money(entry.totalCost) : money(Number(entry.price || 0) * Number(entry.volume || 0)),
                 entry.volumeInTransit || '-',
                 <Button variant="ghost" size="sm" onClick={() => setDelConfirm({ key: 'b2b', id: entry.id })}>Del</Button>,
               ])}
@@ -373,7 +374,7 @@ export default function Commercial() {
         </Card>
       )}
 
-      <OrderDrawer open={orderOpen} onClose={() => setOrderOpen(false)} db={db} dispatch={dispatch} toast={toast} onNewCust={handleNewCust} session={session} />
+      <OrderDrawer open={orderOpen} onClose={() => setOrderOpen(false)} db={db} exchangePoints={state.exchangePoints} dispatch={dispatch} toast={toast} onNewCust={handleNewCust} session={session} />
       {editOrder && <EditOrderDrawer order={editOrder} onClose={() => setEditOrder(null)} dispatch={dispatch} toast={toast} />}
       <CustomerDrawer open={custOpen} onClose={() => setCustOpen(false)} dispatch={dispatch} toast={toast} />
       {editCust && <EditCustomerDrawer cust={editCust} onClose={() => setEditCust(null)} dispatch={dispatch} toast={toast} />}
@@ -405,20 +406,100 @@ export default function Commercial() {
   )
 }
 
-function OrderDrawer({ open, onClose, db, dispatch, toast, onNewCust, session }) {
+function OrderDrawer({ open, onClose, db, exchangePoints, dispatch, toast, onNewCust, session }) {
   const autoRep = session?.role === 'sales_rep' ? session?.name : session?.name || ''
-  const { register, handleSubmit, watch, reset, formState: { errors } } = useForm({ defaultValues: { placedBy: autoRep, deliveryDate: today() } })
+  const { register, handleSubmit, watch, reset, formState: { errors } } = useForm({ defaultValues: { placedBy: autoRep, deliveryDate: today(), channel: 'Commercial' } })
+  const [exchangeAllocations, setExchangeAllocations] = useState([])
   const productValue = watch('product')
+  const channelValue = watch('channel', 'Commercial')
   const customerValue = watch('customer', '')
   const customerName = (customerValue || '').trim().toUpperCase()
   const customerExists = db.customers.some(customer => customer.name?.trim().toUpperCase() === customerName)
   const owed = customerName ? owedBalance(customerName, db.invoices) : 0
 
+  function resetOrderForm() {
+    reset({ placedBy: autoRep, deliveryDate: today(), channel: 'Commercial' })
+    setExchangeAllocations([])
+  }
+
+  function addExchangeAllocation() {
+    setExchangeAllocations(current => [
+      ...current,
+      { id: uid('XPT'), exchangePointId: '', items: [{ id: uid('XIT'), product: '', qty: 1 }] },
+    ])
+  }
+
+  function updateExchangeAllocation(id, patch) {
+    setExchangeAllocations(current => current.map(entry => entry.id === id ? { ...entry, ...patch } : entry))
+  }
+
+  function removeExchangeAllocation(id) {
+    setExchangeAllocations(current => current.filter(entry => entry.id !== id))
+  }
+
+  function addExchangeItem(id) {
+    setExchangeAllocations(current => current.map(entry => (
+      entry.id === id
+        ? { ...entry, items: [...entry.items, { id: uid('XIT'), product: '', qty: 1 }] }
+        : entry
+    )))
+  }
+
+  function updateExchangeItem(allocationId, itemId, patch) {
+    setExchangeAllocations(current => current.map(entry => (
+      entry.id === allocationId
+        ? { ...entry, items: entry.items.map(item => item.id === itemId ? { ...item, ...patch } : item) }
+        : entry
+    )))
+  }
+
+  function removeExchangeItem(allocationId, itemId) {
+    setExchangeAllocations(current => current.map(entry => (
+      entry.id === allocationId
+        ? { ...entry, items: entry.items.filter(item => item.id !== itemId) }
+        : entry
+    )))
+  }
+
   async function onSubmit(data) {
     const customer = (data.customer || '').trim().toUpperCase()
+    const channel = data.channel || 'Commercial'
     const product = data.product === 'custom' ? (data.customProduct || '').trim().toUpperCase() : data.product
-    if (!customer || !product) {
-      toast('error', 'Customer and product are required.')
+    if (!customer) {
+      toast('error', 'Customer is required.')
+      return
+    }
+
+    let exchangeBreakdown = []
+    let resolvedProduct = product
+    let resolvedQty = data.qty ? Number(data.qty) : null
+    let resolvedUnitPrice = data.unitPrice ? Number(data.unitPrice) : null
+
+    if (channel === 'Exchange Point') {
+      const cleaned = exchangeAllocations
+        .map(entry => {
+          const point = exchangePoints.find(item => item.id === entry.exchangePointId)
+          return {
+            exchangePointId: entry.exchangePointId,
+            exchangePointName: point?.name || '',
+            items: (entry.items || [])
+              .map(item => ({ type: item.product, qty: Number(item.qty || 0) }))
+              .filter(item => item.type && item.qty > 0),
+          }
+        })
+        .filter(entry => entry.exchangePointId && entry.items.length)
+
+      if (!cleaned.length) {
+        toast('error', 'Select at least one exchange point and add items for it.')
+        return
+      }
+
+      exchangeBreakdown = cleaned
+      resolvedProduct = 'EXCHANGE POINT ORDER'
+      resolvedQty = cleaned.reduce((sum, entry) => sum + entry.items.reduce((itemSum, item) => itemSum + Number(item.qty || 0), 0), 0)
+      resolvedUnitPrice = null
+    } else if (!resolvedProduct) {
+      toast('error', 'Product is required.')
       return
     }
 
@@ -426,19 +507,21 @@ function OrderDrawer({ open, onClose, db, dispatch, toast, onNewCust, session })
       id: uid('SO'),
       status: 'Awaiting Ops Review',
       date: today(),
+      channel,
       customer,
-      product,
-      qty: data.qty ? Number(data.qty) : null,
-      unitPrice: data.unitPrice ? Number(data.unitPrice) : null,
+      product: resolvedProduct,
+      qty: resolvedQty,
+      unitPrice: resolvedUnitPrice,
       placedBy: data.placedBy || null,
       deliveryDate: data.deliveryDate || null,
       notes: data.notes || null,
+      exchangeBreakdown,
     }
 
     const existing = db.customers.find(item => item.name?.trim().toUpperCase() === customer)
     if (!existing) {
       onNewCust({ custName: customer, pendingOrder: order })
-      reset({ placedBy: autoRep, deliveryDate: today() })
+      resetOrderForm()
       return
     }
 
@@ -453,11 +536,11 @@ function OrderDrawer({ open, onClose, db, dispatch, toast, onNewCust, session })
           read: false,
           time: ts(),
           title: `Order ${order.id} placed`,
-          message: `New order for ${product} for ${customer} submitted to Operations.`,
+          message: `New order for ${order.product} for ${customer} submitted to Operations.`,
         },
       })
       toast('success', 'Order submitted to Operations.')
-      reset({ placedBy: autoRep, deliveryDate: today() })
+      resetOrderForm()
       onClose()
     } catch (error) {
       toast('error', error.message || 'Could not submit order.')
@@ -471,6 +554,12 @@ function OrderDrawer({ open, onClose, db, dispatch, toast, onNewCust, session })
           ? <Input value={session?.name || ''} disabled />
           : <Select {...register('placedBy')}><option value="">Select rep...</option>{REPS.map(rep => <option key={rep}>{rep}</option>)}</Select>}
       </Field>
+      <Field label="Order Type">
+        <Select {...register('channel')}>
+          <option value="Commercial">Commercial</option>
+          <option value="Exchange Point">Exchange Point</option>
+        </Select>
+      </Field>
       <Field label="Customer Name" error={errors.customer?.message} hint={customerName ? customerExists ? 'Customer found in register.' : 'Customer not found yet. You will be prompted to register them.' : undefined}>
         <Input {...register('customer', { required: 'Customer name is required.' })} placeholder="e.g. METRO FAST FOOD" />
       </Field>
@@ -479,14 +568,59 @@ function OrderDrawer({ open, onClose, db, dispatch, toast, onNewCust, session })
           <span><strong>{customerName}</strong> currently owes <strong>{money(owed)}</strong>. Operations will see this in review.</span>
         </div>
       )}
-      <Field label="Product / Cylinder Size">
-        <Select {...register('product')}><option value="">Select product...</option>{PRODUCTS.map(product => <option key={product}>{product}</option>)}<option value="custom">Other</option></Select>
-      </Field>
-      {productValue === 'custom' && <Field label="Specify Product"><Input {...register('customProduct')} placeholder="Type product name" /></Field>}
-      <div className="frow">
-        <Field label="Quantity"><Input {...register('qty')} type="number" placeholder="0" /></Field>
-        <Field label="Unit Price (GHs)"><Input {...register('unitPrice')} type="number" placeholder="0.00" /></Field>
-      </div>
+      {channelValue === 'Commercial' ? (
+        <>
+          <Field label="Product / Cylinder Size">
+            <Select {...register('product')}><option value="">Select product...</option>{PRODUCTS.map(product => <option key={product}>{product}</option>)}<option value="custom">Other</option></Select>
+          </Field>
+          {productValue === 'custom' && <Field label="Specify Product"><Input {...register('customProduct')} placeholder="Type product name" /></Field>}
+          <div className="frow">
+            <Field label="Quantity"><Input {...register('qty')} type="number" placeholder="0" /></Field>
+            <Field label="Unit Price (GHs)"><Input {...register('unitPrice')} type="number" placeholder="0.00" /></Field>
+          </div>
+        </>
+      ) : (
+        <div style={{ display: 'grid', gap: 10, marginBottom: 8 }}>
+          <div className="ibar ib">
+            <span>Select one or more exchange points, then add one or more cylinder items with quantities under each point.</span>
+          </div>
+          {!exchangeAllocations.length && <div style={emptyInlineStyle}>No exchange point selected yet.</div>}
+          {exchangeAllocations.map(allocation => (
+            <div key={allocation.id} style={itemBoxStyle}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                <div style={{ flex: 1 }}>
+                  <label style={miniLabelStyle}>Exchange Point</label>
+                  <select value={allocation.exchangePointId} onChange={event => updateExchangeAllocation(allocation.id, { exchangePointId: event.target.value })} style={fieldInputStyle}>
+                    <option value="">Select exchange point...</option>
+                    {exchangePoints.map(point => <option key={point.id} value={point.id}>{point.name}</option>)}
+                  </select>
+                </div>
+                <button type="button" onClick={() => removeExchangeAllocation(allocation.id)} style={removeButtonStyle}>×</button>
+              </div>
+              <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+                {allocation.items.map(item => (
+                  <div key={item.id} style={{ display: 'grid', gridTemplateColumns: '1.4fr .7fr auto', gap: 8, alignItems: 'end' }}>
+                    <div>
+                      <label style={miniLabelStyle}>Item</label>
+                      <select value={item.product} onChange={event => updateExchangeItem(allocation.id, item.id, { product: event.target.value })} style={fieldInputStyle}>
+                        <option value="">Select item...</option>
+                        {PRODUCTS.filter(option => option !== 'Bulk LPG' && option !== 'Autogas').map(option => <option key={option}>{option}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={miniLabelStyle}>Qty</label>
+                      <input type="number" min="1" value={item.qty} onChange={event => updateExchangeItem(allocation.id, item.id, { qty: event.target.value })} style={fieldInputStyle} />
+                    </div>
+                    <button type="button" onClick={() => removeExchangeItem(allocation.id, item.id)} style={removeButtonStyle}>×</button>
+                  </div>
+                ))}
+                <Button variant="secondary" size="sm" onClick={() => addExchangeItem(allocation.id)}>+ Add Item</Button>
+              </div>
+            </div>
+          ))}
+          <Button variant="secondary" size="sm" onClick={addExchangeAllocation}>+ Add Exchange Point</Button>
+        </div>
+      )}
       <Field label="Delivery Date"><Input {...register('deliveryDate')} type="date" /></Field>
       <Field label="Notes / Special Instructions"><Input {...register('notes')} placeholder="Any delivery note or site instruction" /></Field>
     </Drawer>
@@ -870,3 +1004,9 @@ function TrendCard({ title, subtitle, points, unit }) {
     </div>
   )
 }
+
+const miniLabelStyle = { fontSize: 10, fontWeight: 600, color: 'var(--m)', textTransform: 'uppercase', letterSpacing: '.5px', display: 'block', marginBottom: 4 }
+const emptyInlineStyle = { background: 'var(--bg)', borderRadius: 8, padding: '12px 14px', fontSize: 12, color: 'var(--m)', textAlign: 'center' }
+const itemBoxStyle = { background: 'var(--bg)', border: '1.5px solid var(--b)', borderRadius: 8, padding: '10px 12px' }
+const fieldInputStyle = { width: '100%', border: '1.5px solid var(--b)', borderRadius: 7, padding: '7px 9px', fontSize: 13, outline: 'none', background: '#fff' }
+const removeButtonStyle = { marginTop: 18, background: 'none', border: 'none', color: 'var(--r)', fontSize: 18, cursor: 'pointer', lineHeight: 1, padding: '4px 6px' }

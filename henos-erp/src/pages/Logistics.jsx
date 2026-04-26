@@ -35,6 +35,7 @@ export default function Logistics() {
   }, [selectedVehicleId, vehicles])
 
   const selectedVehicle = vehicles.find(vehicle => vehicle.id === selectedVehicleId) || vehicles[0] || null
+  const usesServiceCharge = /iveco/i.test(String(selectedVehicle?.name || selectedVehicle?.brvNumber || selectedVehicle?.type || ''))
   const activeRates = useMemo(() => normalizeDistanceRateRows(storedRates.length ? storedRates : LOGISTICS_DISTANCE_RATES), [storedRates])
 
   const vehicleLoadings = useMemo(() => loadings
@@ -113,7 +114,7 @@ export default function Logistics() {
 
   const pnlSummary = useMemo(() => {
     if (!selectedPnl) return null
-    const serviceCharge = Number((selectedPnl.amountPayable * 0.15).toFixed(2))
+    const serviceCharge = usesServiceCharge ? Number((selectedPnl.amountPayable * 0.15).toFixed(2)) : 0
     const totalNetUppf = Number((selectedPnl.amountPayable - serviceCharge).toFixed(2))
     const deductionTotal = Number((selectedPnl.roadExpenses + selectedPnl.maintenance).toFixed(2))
     const netUppfToProvider = Number((totalNetUppf - deductionTotal).toFixed(2))
@@ -127,7 +128,7 @@ export default function Logistics() {
       deductionTotal,
       netUppfToProvider,
     }
-  }, [selectedPnl])
+  }, [selectedPnl, usesServiceCharge])
 
   async function doDelete() {
     try {
@@ -364,7 +365,7 @@ export default function Logistics() {
                         </div>
                         <div style={{ padding: '8px 0' }}>
                           <PnlLine label="Total UPPF Payable to Service Provider" value={pnlSummary.totalUppfPayable} />
-                          <PnlLine label="15% Service Charge to Client" value={-pnlSummary.serviceCharge} negative />
+                          {usesServiceCharge && <PnlLine label="15% Service Charge to Client" value={-pnlSummary.serviceCharge} negative />}
                           <PnlLine label="Total Net UPPF" value={pnlSummary.totalNetUppf} strong />
                           <div style={{ padding: '14px 16px 8px', fontWeight: 800 }}>Less Repairs and Maintenance for the Month</div>
                           <PnlLine label="ROAD EXPENSES" value={pnlSummary.roadExpenses} />
@@ -378,21 +379,24 @@ export default function Logistics() {
                     <EmptyState icon="PL" message="No P&L records yet" sub="Add loadings and maintenance for this BRV to generate the monthly P&L." />
                   )}
                   <Table
-                    columns={['Period', 'Loadings', 'UPPF Payable', '15% Charge', 'Net UPPF', 'Road Expenses', 'Maintenance', 'Net to Provider']}
+                    columns={usesServiceCharge ? ['Period', 'Loadings', 'UPPF Payable', '15% Charge', 'Net UPPF', 'Road Expenses', 'Maintenance', 'Net to Provider'] : ['Period', 'Loadings', 'UPPF Payable', 'Net UPPF', 'Road Expenses', 'Maintenance', 'Net to Provider']}
                     rows={pnlRows.map(item => {
-                      const serviceCharge = Number((item.amountPayable * 0.15).toFixed(2))
+                      const serviceCharge = usesServiceCharge ? Number((item.amountPayable * 0.15).toFixed(2)) : 0
                       const totalNetUppf = Number((item.amountPayable - serviceCharge).toFixed(2))
                       const netToProvider = Number((totalNetUppf - item.roadExpenses - item.maintenance).toFixed(2))
-                      return [
+                      const row = [
                         item.period || '-',
                         item.loadings,
                         money(item.amountPayable),
-                        `(${money(serviceCharge)})`,
+                      ]
+                      if (usesServiceCharge) row.push(`(${money(serviceCharge)})`)
+                      row.push(
                         money(totalNetUppf),
                         money(item.roadExpenses),
                         money(item.maintenance),
                         <span style={{ color: netToProvider >= 0 ? 'var(--g)' : 'var(--r)', fontWeight: 700 }}>{money(netToProvider)}</span>,
-                      ]
+                      )
+                      return row
                     })}
                     empty="No P&L records yet"
                   />

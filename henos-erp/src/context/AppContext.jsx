@@ -78,6 +78,9 @@ function reduceState(state, action) {
       if (action.key === 'payments' && action.meta?.invoice) {
         db.invoices = state.db.invoices.map(invoice => invoice.id === action.meta.invoice.id ? action.meta.invoice : invoice)
       }
+      if (action.key === 'b2b' && action.meta?.invoice) {
+        db.invoices = [action.meta.invoice, ...state.db.invoices.filter(invoice => invoice.id !== action.meta.invoice.id)]
+      }
       return { ...state, db }
     }
 
@@ -239,6 +242,7 @@ function normalizeOrder(order) {
     ...order,
     customer: order.customer?.name || order.customer || '',
     placedBy: order.placedBy?.name || order.placedBy || '',
+    exchangeBreakdown: order.exchangeBreakdown || [],
   }
 }
 
@@ -416,7 +420,7 @@ export function AppProvider({ children }) {
           next.stations = stations.map(normalizeStation)
         }
 
-        if (canAccess('eazigas')) {
+        if (canAccess('eazigas') || canAccess('commercial')) {
           const exchangePoints = await apiGet('/api/eazigas', token)
           next.exchangePoints = exchangePoints.map(normalizeExchangePoint)
         }
@@ -643,11 +647,15 @@ async function handleInsert(action, state, token, session) {
       const customer = record.customerId
         ? { id: record.customerId, name: record.customerName || '' }
         : findCustomerByName(state.db.customers, record.customerName)
-      action.record = await apiPost('/api/b2b', {
+      const result = await apiPost('/api/b2b', {
         ...normalizeBlankStrings(record),
         customerId: customer?.id || null,
         customerName: customer?.name || record.customerName,
       }, token)
+      action.record = result.entry
+      if (result.invoice) {
+        action.meta = { invoice: normalizeInvoice(result.invoice) }
+      }
       return
     }
 

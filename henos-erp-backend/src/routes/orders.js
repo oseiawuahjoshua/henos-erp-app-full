@@ -30,13 +30,23 @@ router.get('/', requireOrderAccess, async (req, res) => {
 router.post('/', requireModule('commercial'), async (req, res) => {
   try {
     const { customerId, placedById, ...rest } = req.body
+    const payload = {
+      ...rest,
+      qty: rest.qty !== undefined && rest.qty !== null ? Number(rest.qty) : null,
+      unitPrice: rest.unitPrice !== undefined && rest.unitPrice !== null ? Number(rest.unitPrice) : null,
+    }
     res.status(201).json(await prisma.order.create({
-      data: { ...rest, customer: { connect:{id:customerId} }, ...(placedById ? { placedBy:{connect:{id:placedById}} } : {}) }
+      data: { ...payload, customer: { connect:{id:customerId} }, ...(placedById ? { placedBy:{connect:{id:placedById}} } : {}) }
     }))
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 router.patch('/:id', async (req, res) => {
-  try { res.json(await prisma.order.update({ where:{id:req.params.id}, data:req.body })) }
+  try {
+    const payload = { ...req.body }
+    if ('qty' in payload) payload.qty = payload.qty !== null ? Number(payload.qty) : null
+    if ('unitPrice' in payload) payload.unitPrice = payload.unitPrice !== null ? Number(payload.unitPrice) : null
+    res.json(await prisma.order.update({ where:{id:req.params.id}, data:payload }))
+  }
   catch (e) { res.status(500).json({ error: e.message }) }
 })
 router.delete('/:id', async (req, res) => {
